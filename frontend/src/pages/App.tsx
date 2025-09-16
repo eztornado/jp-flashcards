@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { AppShell, Button, Card, Center, Group, Stack, Text, Title } from '@mantine/core'
-import { IconEye, IconRefresh, IconVolume } from '@tabler/icons-react'
+import { IconEye, IconRefresh, IconVolume, IconMessageCircle } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 
 type Word = { id: number; kanji: string; romaji?: string; translation: string }
@@ -65,7 +65,12 @@ export default function App() {
         <AppShell.Header>
           <Group px="md" h="100%" align="center" justify="space-between">
             <Title order={4}>JP Flashcards</Title>
-            <Button variant="subtle" component={Link} to="/admin">Admin</Button>
+            <Group>
+              <Button variant="subtle" component={Link} to="/chat" leftSection={<IconMessageCircle size={16} />}>
+                Chat
+              </Button>
+              <Button variant="subtle" component={Link} to="/admin">Admin</Button>
+            </Group>
           </Group>
         </AppShell.Header>
         <AppShell.Main>

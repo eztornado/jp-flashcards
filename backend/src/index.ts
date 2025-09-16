@@ -6,6 +6,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import OpenAI from "openai";
+import dotenv from "dotenv";
+
+// Cargar variables de entorno
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +33,32 @@ db.exec(`
 CREATE UNIQUE INDEX IF NOT EXISTS idx_words_kanji_romaji
 ON words (kanji, romaji);
 `);
+
+// Crear tabla para historial de chat
+db.exec(`
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  topic TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+);
+`);
+
+// Inicializar OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || "",
+});
 
 const app = express();
 app.use(cors());
@@ -211,9 +242,143 @@ app.delete("/api/words", (req, res) => {
   res.json({ deleted: info.changes });
 });
 
+// ============ CHAT ENDPOINTS ============
 
-const PORT = process.env.PORT || 5174;
-app.listen(PORT, () => {
-  console.log(`Backend listening on http://localhost:${PORT}`);
+// GET /api/chat/sessions - Obtener todas las sesiones de chat
+app.get("/api/chat/sessions", (req, res) => {
+  const sessions = db.prepare(`
+    SELECT s.*, COUNT(m.id) as message_count 
+    FROM chat_sessions s
+    LEFT JOIN chat_messages m ON s.id = m.session_id
+    GROUP BY s.id
+    ORDER BY s.updated_at DESC
+  `).all();
+  res.json(sessions);
+});
+
+// POST /api/chat/sessions - Crear nueva sesión
+app.post("/api/chat/sessions", (req, res) => {
+  const { topic } = req.body;
+  const stmt = db.prepare("INSERT INTO chat_sessions (topic) VALUES (?)");
+  const info = stmt.run(topic || "Chat General");
+  const session = db.prepare("SELECT * FROM chat_sessions WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json(session);
+});
+
+// GET /api/chat/sessions/:id/messages - Obtener mensajes de una sesión
+app.get("/api/chat/sessions/:id/messages", (req, res) => {
+  const sessionId = Number(req.params.id);
+  const messages = db.prepare(
+    "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC"
+  ).all(sessionId);
+  res.json(messages);
+});
+
+// POST /api/chat/sessions/:id/messages - Enviar mensaje y obtener respuesta
+app.post("/api/chat/sessions/:id/messages", async (req, res) => {
+  const sessionId = Number(req.params.id);
+  const { message, language = 'ja' } = req.body;
+
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: "OpenAI API key not configured" });
+  }
+
+  try {
+    // Guardar mensaje del usuario
+    const userStmt = db.prepare(
+      "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)"
+    );
+    userStmt.run(sessionId, "user", message);
+
+    // Obtener historial de la conversación
+    const history = db.prepare(
+      "SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC"
+    ).all(sessionId);
+
+    // Obtener palabras aleatorias del vocabulario para contexto
+    const randomWords = db.prepare(
+      "SELECT kanji, romaji, translation FROM words ORDER BY RANDOM() LIMIT 10"
+    ).all();
+    
+    const vocabContext = randomWords.map((w: any) => 
+      `${w.kanji} (${w.romaji}): ${w.translation}`
+    ).join("\n");
+
+    // Preparar el prompt del sistema según el idioma
+    const systemPrompt = language === 'ja' 
+      ? `Eres un tutor de japonés amigable y servicial. Tu objetivo es ayudar al estudiante a practicar japonés de forma natural y educativa.
+         Responde principalmente en japonés, pero puedes incluir explicaciones breves en español entre paréntesis cuando sea útil para el aprendizaje.
+         Usa un nivel de japonés apropiado para estudiantes intermedios. Incluye furigana ocasionalmente para kanji difíciles.
+         Aquí hay algunas palabras del vocabulario del estudiante que podrías usar en la conversación si es relevante:\n${vocabContext}
+         Mantén las respuestas concisas pero educativas.`
+      : `Eres un tutor de japonés amigable y servicial. Responde en español pero puedes incluir palabras o frases en japonés cuando sea educativo.
+         El estudiante está aprendiendo japonés y quiere practicar.
+         Aquí hay algunas palabras del vocabulario del estudiante:\n${vocabContext}
+         Puedes hacer referencias a estas palabras si es relevante para la conversación.`;
+
+    // Crear el array de mensajes para OpenAI
+    const messages: any[] = [
+      { role: "system", content: systemPrompt },
+      ...history.slice(-10).map((m: any) => ({ // Limitar a últimos 10 mensajes para no exceder límites
+        role: m.role,
+        content: m.content
+      })),
+      { role: "user", content: message }
+    ];
+
+    // Llamar a OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages,
+      max_tokens: 500,
+      temperature: 0.7,
+    });
+
+    const assistantMessage = completion.choices[0]?.message?.content || "Lo siento, no pude generar una respuesta.";
+
+    // Guardar respuesta del asistente
+    const assistantStmt = db.prepare(
+      "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)"
+    );
+    const info = assistantStmt.run(sessionId, "assistant", assistantMessage);
+
+    // Actualizar timestamp de la sesión
+    db.prepare("UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(sessionId);
+
+    // Devolver la respuesta
+    const savedMessage = db.prepare("SELECT * FROM chat_messages WHERE id = ?").get(info.lastInsertRowid);
+    res.json(savedMessage);
+
+  } catch (error: any) {
+    console.error("Error en chat:", error);
+    res.status(500).json({ 
+      error: "Error processing chat message",
+      details: error?.message 
+    });
+  }
+});
+
+// DELETE /api/chat/sessions/:id - Eliminar una sesión y sus mensajes
+app.delete("/api/chat/sessions/:id", (req, res) => {
+  const sessionId = Number(req.params.id);
+  
+  // Primero eliminar mensajes
+  db.prepare("DELETE FROM chat_messages WHERE session_id = ?").run(sessionId);
+  
+  // Luego eliminar sesión
+  const info = db.prepare("DELETE FROM chat_sessions WHERE id = ?").run(sessionId);
+  
+  if (info.changes === 0) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+  
+  res.json({ ok: true });
+});
+
+const PORT = process.env.PORT || 2000;
+const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
+
+app.listen(PORT, HOST, () => {
+  console.log(`Backend listening on http://${HOST}:${PORT}`);
 });
 

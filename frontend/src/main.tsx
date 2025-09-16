@@ -9,10 +9,12 @@ import { Notifications } from '@mantine/notifications'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import App from './pages/App'
 import Admin from './pages/Admin'
+import Chat from './pages/Chat'
 
 const router = createBrowserRouter([
   { path: '/', element: <App /> },
   { path: '/admin', element: <Admin /> },
+  { path: '/chat', element: <Chat /> },
 ])
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
