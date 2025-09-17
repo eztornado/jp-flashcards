@@ -32,6 +32,7 @@ import {
   IconDotsVertical,
   IconRobot,
   IconUser,
+  IconX,
 } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 
@@ -272,46 +273,72 @@ export default function Chat() {
   return (
     <AppShell
       header={{ height: 60 }}
-      navbar={{ width: 300, breakpoint: 'sm' }}
+      navbar={{ 
+        width: { base: 250, sm: 300 }, 
+        breakpoint: 'sm',
+        collapsed: { mobile: !currentSession }
+      }}
     >
       <AppShell.Header>
         <Group px="md" h="100%" align="center" justify="space-between">
-          <Group>
+          <Group gap="xs">
             <ActionIcon variant="subtle" component={Link} to="/">
               <IconChevronLeft size={20} />
             </ActionIcon>
-            <Title order={4}>Chat de Práctica</Title>
+            <Title order={5}>Chat</Title>
           </Group>
-          <Group>
+          <Group gap="xs">
             <Select
               value={language}
               onChange={(val) => setLanguage(val as 'ja' | 'es')}
               data={[
-                { value: 'ja', label: '🇯🇵 Japonés' },
-                { value: 'es', label: '🇪🇸 Español' }
+                { value: 'ja', label: '🇯🇵 JA' },
+                { value: 'es', label: '🇪🇸 ES' }
               ]}
-              style={{ width: 140 }}
+              styles={{ input: { width: 80 } }}
+              size="sm"
             />
             <Button 
-              leftSection={<IconPlus size={16} />}
+              leftSection={<IconPlus size={14} />}
               onClick={() => setShowNewChatModal(true)}
+              size="sm"
+              visibleFrom="xs"
             >
-              Nuevo Chat
+              Nuevo
             </Button>
+            <ActionIcon
+              variant="filled"
+              onClick={() => setShowNewChatModal(true)}
+              hiddenFrom="xs"
+            >
+              <IconPlus size={16} />
+            </ActionIcon>
           </Group>
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="md">
-        <Stack h="100%">
-          <Text fw={600} size="sm" c="dimmed">CONVERSACIONES</Text>
+      <AppShell.Navbar p="sm">
+        <Stack h="100%" gap="xs">
+          <Group justify="space-between">
+            <Text fw={600} size="xs" c="dimmed">CONVERSACIONES</Text>
+            {currentSession && (
+              <ActionIcon
+                variant="subtle"
+                onClick={() => setCurrentSession(null)}
+                hiddenFrom="sm"
+                size="sm"
+              >
+                <IconX size={16} />
+              </ActionIcon>
+            )}
+          </Group>
           
           <ScrollArea style={{ flex: 1 }}>
             <Stack gap="xs">
               {sessions.map((session) => (
                 <Card
                   key={session.id}
-                  p="sm"
+                  p="xs"
                   withBorder
                   style={{
                     cursor: 'pointer',
@@ -320,7 +347,7 @@ export default function Chat() {
                   onClick={() => selectSession(session)}
                 >
                   <Group justify="space-between" wrap="nowrap">
-                    <Stack gap={4} style={{ flex: 1 }}>
+                    <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
                       <Text size="sm" fw={500} lineClamp={1}>
                         {session.topic}
                       </Text>
@@ -332,10 +359,10 @@ export default function Chat() {
                       <Menu.Target>
                         <ActionIcon 
                           variant="subtle" 
-                          size="sm"
+                          size="xs"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <IconDotsVertical size={16} />
+                          <IconDotsVertical size={14} />
                         </ActionIcon>
                       </Menu.Target>
                       <Menu.Dropdown>
@@ -361,16 +388,24 @@ export default function Chat() {
 
       <AppShell.Main>
         {currentSession ? (
-          <Stack h="100%" p="md" gap="md">
+          <Stack h="100%" p="sm" gap="sm">
             {/* Chat Header */}
-            <Paper p="sm" withBorder>
+            <Paper p="xs" withBorder>
               <Group justify="space-between">
-                <div>
-                  <Text fw={600}>{currentSession.topic}</Text>
-                  <Badge size="sm" variant="light">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text fw={600} size="sm" lineClamp={1}>{currentSession.topic}</Text>
+                  <Badge size="xs" variant="light">
                     {language === 'ja' ? 'Modo Japonés' : 'Modo Español'}
                   </Badge>
                 </div>
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => setCurrentSession(null)}
+                  hiddenFrom="sm"
+                  size="sm"
+                >
+                  <IconMessageCircle size={16} />
+                </ActionIcon>
               </Group>
             </Paper>
 
@@ -379,9 +414,9 @@ export default function Chat() {
               style={{ flex: 1 }} 
               viewportRef={scrollAreaRef}
             >
-              <Stack gap="md" pb="md">
+              <Stack gap="sm" pb="md">
                 {messages.length === 0 && (
-                  <Text ta="center" c="dimmed" mt="xl">
+                  <Text ta="center" c="dimmed" mt="xl" size="sm">
                     Empieza una conversación en {language === 'ja' ? 'japonés' : 'español'}
                   </Text>
                 )}
@@ -391,65 +426,66 @@ export default function Chat() {
                     key={msg.id}
                     align="flex-start"
                     justify={msg.role === 'user' ? 'flex-end' : 'flex-start'}
+                    px="xs"
                   >
                     {msg.role === 'assistant' && (
-                      <ActionIcon size="lg" variant="light" color="blue">
-                        <IconRobot size={20} />
+                      <ActionIcon size="sm" variant="light" color="blue">
+                        <IconRobot size={16} />
                       </ActionIcon>
                     )}
                     
                     <Paper
-                      p="md"
+                      p="sm"
                       withBorder
-                      maw="70%"
                       style={{
+                        maxWidth: '85%',
                         backgroundColor: msg.role === 'user' 
                           ? 'var(--mantine-color-blue-0)' 
                           : 'var(--mantine-color-gray-0)'
                       }}
                     >
                       <Stack gap="xs">
-                        <Text style={{ whiteSpace: 'pre-wrap' }}>
+                        <Text size="sm" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                           {msg.content}
                         </Text>
-                        <Group gap="xs">
+                        <Group gap={4}>
                           <ActionIcon
-                            size="sm"
+                            size="xs"
                             variant="subtle"
                             onClick={() => speak(msg.content, language)}
                             title="Escuchar"
                           >
-                            <IconVolume size={16} />
+                            <IconVolume size={14} />
                           </ActionIcon>
                           <ActionIcon
-                            size="sm"
+                            size="xs"
                             variant="subtle"
                             onClick={() => translateMessage(msg.content, language === 'ja' ? 'es' : 'ja')}
                             title="Traducir"
                           >
-                            <IconLanguage size={16} />
+                            <IconLanguage size={14} />
                           </ActionIcon>
                         </Group>
                       </Stack>
                     </Paper>
                     
                     {msg.role === 'user' && (
-                      <ActionIcon size="lg" variant="light" color="green">
-                        <IconUser size={20} />
+                      <ActionIcon size="sm" variant="light" color="green">
+                        <IconUser size={16} />
                       </ActionIcon>
                     )}
                   </Group>
                 ))}
                 
                 {loading && (
-                  <Group justify="flex-start">
-                    <ActionIcon size="lg" variant="light" color="blue">
-                      <IconRobot size={20} />
+                  <Group justify="flex-start" px="xs">
+                    <ActionIcon size="sm" variant="light" color="blue">
+                      <IconRobot size={16} />
                     </ActionIcon>
-                    <Paper p="md" withBorder style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+                    <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
                       <Group gap="xs">
                         <Loader size="xs" />
-                        <Text size="sm" c="dimmed">Escribiendo...</Text>
+                        <Text size="xs" c="dimmed">Escribiendo...</Text>
                       </Group>
                     </Paper>
                   </Group>
@@ -458,8 +494,8 @@ export default function Chat() {
             </ScrollArea>
 
             {/* Input Area */}
-            <Paper p="md" withBorder>
-              <Group gap="sm">
+            <Paper p="sm" withBorder>
+              <Group gap="xs">
                 <TextInput
                   style={{ flex: 1 }}
                   placeholder={`Escribe en ${language === 'ja' ? 'japonés' : 'español'}...`}
@@ -472,6 +508,7 @@ export default function Chat() {
                     }
                   }}
                   disabled={loading}
+                  size="sm"
                 />
                 <ActionIcon
                   size="lg"
@@ -479,24 +516,25 @@ export default function Chat() {
                   onClick={sendMessage}
                   disabled={!inputMessage.trim() || loading}
                 >
-                  <IconSend size={20} />
+                  <IconSend size={18} />
                 </ActionIcon>
               </Group>
             </Paper>
           </Stack>
         ) : (
-          <Center h="100%">
+          <Center h="100%" p="md">
             <Stack align="center" gap="xl">
-              <IconMessageCircle size={64} stroke={1.5} style={{ color: 'var(--mantine-color-gray-5)' }} />
+              <IconMessageCircle size={48} stroke={1.5} style={{ color: 'var(--mantine-color-gray-5)' }} />
               <Stack align="center" gap="sm">
-                <Title order={3} c="dimmed">Bienvenido al Chat de Práctica</Title>
-                <Text c="dimmed" ta="center" maw={400}>
-                  Selecciona una conversación existente o crea una nueva para empezar a practicar japonés
+                <Title order={4} c="dimmed" ta="center">Bienvenido al Chat</Title>
+                <Text c="dimmed" ta="center" maw={400} size="sm">
+                  Selecciona una conversación o crea una nueva para practicar japonés
                 </Text>
                 <Button 
                   leftSection={<IconPlus size={16} />}
                   onClick={() => setShowNewChatModal(true)}
                   mt="md"
+                  size="sm"
                 >
                   Iniciar Nueva Conversación
                 </Button>

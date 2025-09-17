@@ -6,6 +6,9 @@ export default defineConfig({
   server: {
     port: 2000,
     host: '0.0.0.0',
+    allowedHosts: [
+      "rpi4.netbird.selfhosted", // 👈 aquí tu dominio
+    ],
   },
   resolve: {
     alias: {

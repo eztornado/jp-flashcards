@@ -153,6 +153,148 @@ app.delete("/api/words/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ============ QUIZ ENDPOINTS ============
+
+// GET /api/quiz/matching - Obtener palabras para quiz de unir
+app.get("/api/quiz/matching", (req, res) => {
+  // Filtrar palabras que no tienen español en el romaji
+  const words = db.prepare(`
+    SELECT * FROM words 
+    WHERE romaji NOT LIKE '%ción%' 
+    AND romaji NOT LIKE '%dad%'
+    AND romaji NOT LIKE '%mente%'
+    AND romaji NOT LIKE '%ar %'
+    AND romaji NOT LIKE '%er %'
+    AND romaji NOT LIKE '%ir %'
+    AND romaji NOT GLOB '*[áéíóúñÁÉÍÓÚÑ]*'
+    ORDER BY RANDOM() 
+    LIMIT 5
+  `).all();
+  
+  if (words.length < 5) {
+    // Si no hay suficientes palabras filtradas, obtener cualquiera
+    const allWords = db.prepare("SELECT * FROM words ORDER BY RANDOM() LIMIT 5").all();
+    return res.json(allWords.map(rowToWord));
+  }
+  
+  res.json(words.map(rowToWord));
+});
+
+// GET /api/quiz/translation - Obtener una palabra para quiz de traducción
+app.get("/api/quiz/translation", (req, res) => {
+  const mode = req.query.mode as string || 'jp-to-es'; // 'jp-to-es' o 'es-to-jp'
+  
+  // Obtener una palabra aleatoria (filtrada)
+  const word = db.prepare(`
+    SELECT * FROM words 
+    WHERE romaji NOT LIKE '%ción%' 
+    AND romaji NOT GLOB '*[áéíóúñÁÉÍÓÚÑ]*'
+    ORDER BY RANDOM() 
+    LIMIT 1
+  `).get();
+  
+  if (!word) {
+    const anyWord = db.prepare("SELECT * FROM words ORDER BY RANDOM() LIMIT 1").get();
+    return res.json({ word: rowToWord(anyWord), mode });
+  }
+  
+  res.json({ word: rowToWord(word), mode });
+});
+
+// GET /api/quiz/fill-romaji - Obtener palabra para completar romaji
+app.get("/api/quiz/fill-romaji", (req, res) => {
+  // Solo palabras con romaji válido y de al menos 3 caracteres
+  const word = db.prepare(`
+    SELECT * FROM words 
+    WHERE romaji != '' 
+    AND LENGTH(romaji) >= 3
+    AND romaji NOT LIKE '%ción%' 
+    AND romaji NOT GLOB '*[áéíóúñÁÉÍÓÚÑ]*'
+    ORDER BY RANDOM() 
+    LIMIT 1
+  `).get();
+  
+  if (!word) {
+    return res.status(404).json({ error: "No suitable words found" });
+  }
+  
+  const fullWord = rowToWord(word);
+  const romaji = fullWord.romaji || '';
+  
+  // Ocultar aproximadamente 40% de los caracteres
+  const hideRatio = 0.4;
+  const charsToHide = Math.max(1, Math.floor(romaji.length * hideRatio));
+  
+  // Crear máscara con guiones bajos
+  let maskedRomaji = romaji.split('');
+  const positions = new Set<number>();
+  
+  // Seleccionar posiciones aleatorias para ocultar
+  while (positions.size < charsToHide) {
+    positions.add(Math.floor(Math.random() * romaji.length));
+  }
+  
+  positions.forEach(pos => {
+    maskedRomaji[pos] = '_';
+  });
+  
+  res.json({
+    ...fullWord,
+    maskedRomaji: maskedRomaji.join(''),
+    positions: Array.from(positions)
+  });
+});
+
+// POST /api/quiz/check - Verificar respuesta de quiz
+app.post("/api/quiz/check", (req, res) => {
+  const { wordId, answer, type } = req.body;
+  
+  const word = db.prepare("SELECT * FROM words WHERE id = ?").get(wordId);
+  if (!word) {
+    return res.status(404).json({ error: "Word not found" });
+  }
+  
+  let isCorrect = false;
+  let correctAnswer = '';
+  
+  switch (type) {
+    case 'translation-jp-to-es':
+      correctAnswer = word.translation;
+      isCorrect = answer.toLowerCase().trim() === word.translation.toLowerCase().trim();
+      break;
+    
+    case 'translation-es-to-jp':
+      correctAnswer = word.kanji;
+      isCorrect = answer.trim() === word.kanji.trim();
+      break;
+    
+    case 'fill-romaji':
+      correctAnswer = word.romaji || '';
+      isCorrect = answer.toLowerCase().trim() === (word.romaji || '').toLowerCase().trim();
+      break;
+    
+    default:
+      return res.status(400).json({ error: "Invalid quiz type" });
+  }
+  
+  res.json({ isCorrect, correctAnswer });
+});
+
+// GET /api/quiz/stats - Obtener estadísticas de quiz (opcional)
+app.get("/api/quiz/stats", (req, res) => {
+  // Por ahora solo devolvemos el total de palabras disponibles
+  const total = db.prepare("SELECT COUNT(*) as count FROM words").get() as any;
+  const filtered = db.prepare(`
+    SELECT COUNT(*) as count FROM words 
+    WHERE romaji NOT GLOB '*[áéíóúñÁÉÍÓÚÑ]*'
+  `).get() as any;
+  
+  res.json({
+    totalWords: total.count,
+    validWords: filtered.count
+  });
+});
+
 // POST /api/import (multipart/form-data)  field: file (xlsx)
 app.post("/api/import", upload.single("file"), (req, res) => {
   try {
@@ -375,7 +517,7 @@ app.delete("/api/chat/sessions/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 2000;
+const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
 
 app.listen(PORT, HOST, () => {

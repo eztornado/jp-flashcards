@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
-import { AppShell, Button, Card, Center, Group, Stack, Text, Title } from '@mantine/core'
-import { IconEye, IconRefresh, IconVolume, IconMessageCircle } from '@tabler/icons-react'
+import { AppShell, Button, Card, Center, Group, Stack, Text, Title, Burger, Drawer, ScrollArea } from '@mantine/core'
+import { IconEye, IconRefresh, IconVolume, IconMessageCircle, IconBrain, IconSettings } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
+import { useDisclosure } from '@mantine/hooks'
 
 type Word = { id: number; kanji: string; romaji?: string; translation: string }
 
 export default function App() {
   const [word, setWord] = useState<Word | null>(null)
   const [showTranslation, setShowTranslation] = useState(false)
+  const [opened, { open, close }] = useDisclosure(false)
 
   // ---------- TTS: estado y selección de voz JA ----------
   const [speechReady, setSpeechReady] = useState(false)
@@ -61,61 +63,124 @@ export default function App() {
   // ---------- fin TTS ----------
 
   return (
-      <AppShell header={{ height: 60 }}>
-        <AppShell.Header>
-          <Group px="md" h="100%" align="center" justify="space-between">
-            <Title order={4}>JP Flashcards</Title>
-            <Group>
-              <Button variant="subtle" component={Link} to="/chat" leftSection={<IconMessageCircle size={16} />}>
-                Chat
-              </Button>
-              <Button variant="subtle" component={Link} to="/admin">Admin</Button>
+      <>
+        <Drawer
+          opened={opened}
+          onClose={close}
+          title="Menú"
+          padding="md"
+          size="sm"
+        >
+          <Stack>
+            <Button
+              component={Link}
+              to="/quiz"
+              leftSection={<IconBrain size={16} />}
+              onClick={close}
+              fullWidth
+            >
+              Quiz
+            </Button>
+            <Button
+              component={Link}
+              to="/chat"
+              leftSection={<IconMessageCircle size={16} />}
+              onClick={close}
+              fullWidth
+            >
+              Chat
+            </Button>
+            <Button
+              component={Link}
+              to="/admin"
+              leftSection={<IconSettings size={16} />}
+              onClick={close}
+              fullWidth
+            >
+              Administrar
+            </Button>
+          </Stack>
+        </Drawer>
+
+        <AppShell header={{ height: 60 }}>
+          <AppShell.Header>
+            <Group px="md" h="100%" align="center" justify="space-between">
+              <Group>
+                <Burger
+                  opened={opened}
+                  onClick={open}
+                  hiddenFrom="sm"
+                  size="sm"
+                />
+                <Title order={4}>JP Flashcards</Title>
+              </Group>
+              <Group visibleFrom="sm">
+                <Button variant="subtle" component={Link} to="/quiz" leftSection={<IconBrain size={16} />}>
+                  Quiz
+                </Button>
+                <Button variant="subtle" component={Link} to="/chat" leftSection={<IconMessageCircle size={16} />}>
+                  Chat
+                </Button>
+                <Button variant="subtle" component={Link} to="/admin">Admin</Button>
+              </Group>
             </Group>
-          </Group>
-        </AppShell.Header>
-        <AppShell.Main>
-          <Center mih="80vh">
-            <Card shadow="sm" radius="lg" p="xl" withBorder style={{ width: 520 }}>
-              <Stack gap="md" align="center">
-                <Title order={1}>{word?.kanji ?? '...'}</Title>
-                <Text c="dimmed" size="lg">{word?.romaji}</Text>
+          </AppShell.Header>
+          <AppShell.Main>
+            <Center style={{ minHeight: 'calc(100vh - 60px)', padding: '1rem' }}>
+              <Card shadow="sm" radius="lg" padding="md" withBorder style={{ width: '100%', maxWidth: 520 }}>
+                <Stack gap="md" align="center">
+                  <Title order={2} ta="center">{word?.kanji ?? '...'}</Title>
+                  <Text c="dimmed" size="md">{word?.romaji}</Text>
 
-                {showTranslation ? (
-                    <Text size="lg" ta="center">{word?.translation}</Text>
-                ) : (
-                    <Text size="lg" ta="center" c="dimmed">Traducción oculta</Text>
-                )}
+                  {showTranslation ? (
+                      <Text size="md" ta="center">{word?.translation}</Text>
+                  ) : (
+                      <Text size="md" ta="center" c="dimmed">Traducción oculta</Text>
+                  )}
 
-                <Group justify="center" wrap="wrap">
-                  <Button leftSection={<IconEye size={16} />} onClick={() => setShowTranslation(s => !s)}>
-                    {showTranslation ? 'Ocultar' : 'Mostrar traducción'}
-                  </Button>
-                  <Button leftSection={<IconRefresh size={16} />} variant="outline" onClick={fetchRandom}>
-                    Nueva aleatoria
-                  </Button>
-                  {/* ---------- TTS: botón ---------- */}
-                  <Button
-                      leftSection={<IconVolume size={16} />}
-                      variant="default"
-                      onClick={speak}
-                      disabled={!speechReady || !word}
-                      title={!speechReady ? 'TTS no disponible en este navegador' : 'Reproducir pronunciación'}
-                  >
-                    Escuchar
-                  </Button>
-                  {/* ---------- fin TTS ---------- */}
-                </Group>
+                  <Stack w="100%" gap="xs">
+                    <Group justify="center" wrap="wrap" gap="xs">
+                      <Button 
+                        leftSection={<IconEye size={16} />} 
+                        onClick={() => setShowTranslation(s => !s)}
+                        size="sm"
+                      >
+                        {showTranslation ? 'Ocultar' : 'Mostrar'}
+                      </Button>
+                      <Button 
+                        leftSection={<IconRefresh size={16} />} 
+                        variant="outline" 
+                        onClick={fetchRandom}
+                        size="sm"
+                      >
+                        Nueva
+                      </Button>
+                      {/* ---------- TTS: botón ---------- */}
+                      <Button
+                          leftSection={<IconVolume size={16} />}
+                          variant="default"
+                          onClick={speak}
+                          disabled={!speechReady || !word}
+                          title={!speechReady ? 'TTS no disponible en este navegador' : 'Reproducir pronunciación'}
+                          size="sm"
+                      >
+                        Escuchar
+                      </Button>
+                      {/* ---------- fin TTS ---------- */}
+                    </Group>
+                  </Stack>
 
-                {/* Mensaje de compatibilidad opcional */}
-                {!speechReady && (
-                    <Text size="sm" c="dimmed" ta="center">
-                      El TTS no está disponible en este navegador/dispositivo.
-                    </Text>
-                )}
-              </Stack>
-            </Card>
-          </Center>
-        </AppShell.Main>
-      </AppShell>
+                  {/* Mensaje de compatibilidad opcional */}
+                  {!speechReady && (
+                      <Text size="xs" c="dimmed" ta="center">
+                        El TTS no está disponible en este navegador/dispositivo.
+                      </Text>
+                  )}
+                </Stack>
+              </Card>
+            </Center>
+          </AppShell.Main>
+        </AppShell>
+      </>
   )
 }
