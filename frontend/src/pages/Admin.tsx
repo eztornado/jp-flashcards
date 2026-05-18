@@ -26,7 +26,7 @@ export default function Admin() {
 
   async function load() {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), search })
-    const res = await fetch('http://rpi4.netbird.selfhosted:3000/api/words?' + params.toString())
+    const res = await fetch('http://rpi4.netbird.vpn:3000/api/words?' + params.toString())
     const data = await res.json()
     setItems(data.items)
     setTotal(data.total)
@@ -46,7 +46,7 @@ export default function Admin() {
   }
   async function save() {
     const method = editing ? 'PUT' : 'POST'
-    const url = editing ? 'http://rpi4.netbird.selfhosted:3000/api/words/' + editing.id : '/api/words'
+    const url = editing ? 'http://rpi4.netbird.vpn:3000/api/words/' + editing.id : '/api/words'
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -63,7 +63,7 @@ export default function Admin() {
   }
   async function remove(id: number) {
     if (!confirm('¿Eliminar esta palabra?')) return
-    const res = await fetch('http://rpi4.netbird.selfhosted:3000/api/words/' + id, { method: 'DELETE' })
+    const res = await fetch('http://rpi4.netbird.vpn:3000/api/words/' + id, { method: 'DELETE' })
     if (res.ok) {
       notifications.show({ color: 'teal', title: 'Eliminada', message: 'Palabra eliminada' })
       load()

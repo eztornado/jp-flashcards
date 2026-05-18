@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import OpenAI from "openai";
+import axios from "axios";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
@@ -55,10 +55,37 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 `);
 
-// Inicializar OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "",
-});
+// Configuración de zAI GLM
+const ZAI_API_KEY = process.env.ZAI_API_KEY || "";
+const ZAI_MODEL = process.env.ZAI_MODEL || "glm-4-flash";
+const ZAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+
+// Función helper para llamar a zAI GLM
+async function callZAIGLM(messages: any[]): Promise<string> {
+  try {
+    const response = await axios.post(
+      `${ZAI_BASE_URL}/chat/completions`,
+      {
+        model: ZAI_MODEL,
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 500,
+        stream: false
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${ZAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    return response.data.choices[0]?.message?.content || "Lo siento, no pude generar una respuesta.";
+  } catch (error: any) {
+    console.error("Error calling zAI GLM:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.error?.message || "Error al comunicarse con el modelo de IA");
+  }
+}
 
 const app = express();
 app.use(cors());
@@ -386,6 +413,37 @@ app.delete("/api/words", (req, res) => {
 
 // ============ CHAT ENDPOINTS ============
 
+// GET /api/chat/test - Verificar que zAI GLM está configurado correctamente
+app.get("/api/chat/test", async (req, res) => {
+  if (!ZAI_API_KEY) {
+    return res.status(500).json({ 
+      configured: false,
+      error: "zAI API key not configured",
+      help: "Please set ZAI_API_KEY in your .env file. Get your free API key at: https://open.bigmodel.cn/" 
+    });
+  }
+
+  try {
+    const testMessage = await callZAIGLM([
+      { role: "system", content: "You are a helpful assistant. Respond in one short sentence." },
+      { role: "user", content: "Say hello in Japanese" }
+    ]);
+
+    res.json({
+      configured: true,
+      model: ZAI_MODEL,
+      testResponse: testMessage,
+      message: "zAI GLM is configured correctly!"
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      configured: false,
+      error: error.message,
+      help: "Check your API key is valid"
+    });
+  }
+});
+
 // GET /api/chat/sessions - Obtener todas las sesiones de chat
 app.get("/api/chat/sessions", (req, res) => {
   const sessions = db.prepare(`
@@ -421,8 +479,11 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
   const sessionId = Number(req.params.id);
   const { message, language = 'ja' } = req.body;
 
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OpenAI API key not configured" });
+  if (!ZAI_API_KEY) {
+    return res.status(500).json({ 
+      error: "zAI API key not configured",
+      help: "Please set ZAI_API_KEY in your .env file. Get your free API key at: https://open.bigmodel.cn/" 
+    });
   }
 
   try {
@@ -458,7 +519,7 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
          Aquí hay algunas palabras del vocabulario del estudiante:\n${vocabContext}
          Puedes hacer referencias a estas palabras si es relevante para la conversación.`;
 
-    // Crear el array de mensajes para OpenAI
+    // Crear el array de mensajes para zAI GLM
     const messages: any[] = [
       { role: "system", content: systemPrompt },
       ...history.slice(-10).map((m: any) => ({ // Limitar a últimos 10 mensajes para no exceder límites
@@ -468,15 +529,8 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
       { role: "user", content: message }
     ];
 
-    // Llamar a OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages,
-      max_tokens: 500,
-      temperature: 0.7,
-    });
-
-    const assistantMessage = completion.choices[0]?.message?.content || "Lo siento, no pude generar una respuesta.";
+    // Llamar a zAI GLM
+    const assistantMessage = await callZAIGLM(messages);
 
     // Guardar respuesta del asistente
     const assistantStmt = db.prepare(
@@ -518,7 +572,7 @@ app.delete("/api/chat/sessions/:id", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
+const HOST = process.env.HOST || "rpi4.netbird.vpn"; // 0.0.0.0 = todas las interfaces
 
 app.listen(PORT, HOST, () => {
   console.log(`Backend listening on http://${HOST}:${PORT}`);
