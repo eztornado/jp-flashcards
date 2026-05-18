@@ -1,18 +1,22 @@
-# 🎌 Configuración del Chat con zAI GLM - JP Flashcards
+# 🎌 Configuración del Chat con IA - JP Flashcards
 
-## 🆓 ¡Ahora con IA completamente GRATIS!
+## 🆓 ¡Ahora con IA local o API, lo que prefieras!
 
-Hemos migrado de OpenAI a **zAI GLM-4.5-Flash**, un modelo de IA potente y **100% gratuito** para uso personal.
+Hemos agregado soporte tanto para **zAI GLM-4.5-Flash** como para **Ollama**, dándote la flexibilidad de usar modelos locales o API según tu preferencia.
 
-## 🚀 Inicio Rápido
+## 🚀 Opciones de IA Disponibles
 
-### 1. Obtén tu API Key GRATIS
+### 1. Ollama Local (GRATIS y local) 🌟 Recomendado
+- **Costo**: ¡GRATIS!
+- **Privacidad**: Totalmente local
+- **Velocidad**: Rápida en red local
+- **Ideal para**: Uso ilimitado, privacidad
 
-1. Ve a [https://open.bigmodel.cn/](https://open.bigmodel.cn/)
-2. Regístrate con tu email (es gratis)
-3. En el dashboard, ve a "API Keys" 
-4. Crea una nueva API key
-5. ¡Copia tu key!
+### 2. zAI GLM (API gratuita o de pago)
+- **Costo**: Gratis (Flash) / ~$0.014/1K tokens (Plus)
+- **Velocidad**: Rápida
+- **Calidad**: Excelente
+- **Ideal para**: Uso intensivo, modelos potentes
 
 > **Nota**: La interfaz puede estar en chino. Busca "API密钥" o "API Keys" en el menú.
 
