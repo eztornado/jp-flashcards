@@ -112,7 +112,7 @@ export default function Quiz() {
   // Cargar quiz de emparejamiento
   const loadMatchingQuiz = async () => {
     try {
-      const res = await fetch('http://rpi4.netbird.vpn:3000/api/quiz/matching')
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/matching')
       const words = await res.json()
       setMatchingWords(words)
       
@@ -132,7 +132,7 @@ export default function Quiz() {
   // Cargar quiz de traducción
   const loadTranslationQuiz = async () => {
     try {
-      const res = await fetch(`http://rpi4.netbird.vpn:3000/api/quiz/translation?mode=${translationMode}`)
+      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/quiz/translation?mode=${translationMode}`)
       const data = await res.json()
       setTranslationWord(data)
       setTranslationAnswer('')
@@ -146,7 +146,7 @@ export default function Quiz() {
   // Cargar quiz de completar romaji
   const loadRomajiQuiz = async () => {
     try {
-      const res = await fetch('http://rpi4.netbird.vpn:3000/api/quiz/fill-romaji')
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/fill-romaji')
       if (!res.ok) {
         notifications.show({
           color: 'red',
@@ -253,7 +253,7 @@ export default function Quiz() {
     if (!translationWord || !translationAnswer.trim()) return
     
     try {
-      const res = await fetch('http://rpi4.netbird.vpn:3000/api/quiz/check', {
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -295,7 +295,7 @@ export default function Quiz() {
     if (!romajiWord || !romajiAnswer.trim()) return
     
     try {
-      const res = await fetch('http://rpi4.netbird.vpn:3000/api/quiz/check', {
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

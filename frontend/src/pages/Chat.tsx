@@ -114,7 +114,7 @@ export default function Chat() {
 
   const loadSessions = async () => {
     try {
-      const res = await fetch('http://rpi4.netbird.vpn:3000/api/chat/sessions')
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/chat/sessions')
       const data = await res.json()
       setSessions(data)
     } catch (error) {
@@ -125,7 +125,7 @@ export default function Chat() {
   const createNewSession = async () => {
     const topicLabel = CHAT_TOPICS.find(t => t.value === selectedTopic)?.label || 'Chat General'
     try {
-      const res = await fetch('http://rpi4.netbird.vpn:3000/api/chat/sessions', {
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/chat/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: topicLabel })
@@ -151,7 +151,7 @@ export default function Chat() {
 
   const loadMessages = async (sessionId: number) => {
     try {
-      const res = await fetch(`http://rpi4.netbird.vpn:3000/api/chat/sessions/${sessionId}/messages`)
+      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/chat/sessions/${sessionId}/messages`)
       const data = await res.json()
       setMessages(data)
     } catch (error) {
@@ -182,7 +182,7 @@ export default function Chat() {
     setMessages(prev => [...prev, tempUserMessage])
 
     try {
-      const res = await fetch(`http://rpi4.netbird.vpn:3000/api/chat/sessions/${currentSession.id}/messages`, {
+      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/chat/sessions/${currentSession.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -220,7 +220,7 @@ export default function Chat() {
     if (!confirm('¿Eliminar esta conversación?')) return
     
     try {
-      const res = await fetch(`http://rpi4.netbird.vpn:3000/api/chat/sessions/${sessionId}`, {
+      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/chat/sessions/${sessionId}`, {
         method: 'DELETE'
       })
       

@@ -727,7 +727,7 @@ app.delete("/api/chat/sessions/:id", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || "rpi4.netbird.vpn"; // 0.0.0.0 = todas las interfaces
+const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
 
 app.listen(PORT, HOST, () => {
   console.log(`Backend listening on http://${HOST}:${PORT}`);

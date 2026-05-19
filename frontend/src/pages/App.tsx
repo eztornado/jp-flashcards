@@ -36,7 +36,7 @@ export default function App() {
 
   const fetchRandom = async () => {
     setShowTranslation(false)
-    const res = await fetch('http://rpi4.netbird.vpn:3000/api/random')
+    const res = await fetch('http://rpi2.netbird.vpn:3000/api/random')
     const data = await res.json()
     setWord(data)
   }
