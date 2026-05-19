@@ -73,77 +73,76 @@ async function callLLM(
   apiKey?: string,
   baseUrls?: any,
 ): Promise<string> {
-  // Función auxiliar para llamar al modelo de IA (soporta zAI y Ollama)
-  async function callLLM(messages: any[], model: string, apiKey?: string, baseUrls?: any): Promise<string> {
-    try {
-      // Verificar si estamos usando Ollama
-      const isOllama = OLLAMA_HOST.includes("cos-alicante") || process.env.OLLAMA_HOST;
+  try {
+    // Verificar si estamos usando Ollama
+    const isOllama = OLLAMA_HOST.includes("cos-alicante") || process.env.OLLAMA_HOST;
 
-      if (isOllama) {
-        // Llamada a Ollama
-        const response = await axios.post(
-          OLLAMA_BASE_URL,
-          {
-            model: OLLAMA_MODEL,
-            prompt: messages
-              .filter((m) => m.role !== "system") // Ollama no usa role: system
-              .map((m) => `${m.role}: ${m.content}`)
-              .join("\n"),
-            options: {
-              temperature: 0.7,
-              top_p: 0.9,
-            },
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        return (response.data.response || "Lo siento, no pude generar una respuesta.");
-      } else if (apiKey) {
-        // Llamada a zAI GLM (retrocompatibilidad)
-        const response = await axios.post(
-          `${baseUrls.zAI}/chat/completions`,
-          {
-            model: model,
-            messages: messages,
+    if (isOllama) {
+      // Llamada a Ollama
+      const response = await axios.post(
+        OLLAMA_BASE_URL,
+        {
+          model: OLLAMA_MODEL,
+          prompt: messages
+            .filter((m) => m.role !== "system") // Ollama no usa role: system
+            .map((m) => `${m.role}: ${m.content}`)
+            .join("\n"),
+          options: {
             temperature: 0.7,
-            max_tokens: 500,
-            stream: false,
+            top_p: 0.9,
           },
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        return (
-          response.data.choices[0]?.message?.content ||
-          "Lo siento, no pude generar una respuesta."
-        );
-      }
-
-      throw new Error("No hay configuración de IA disponible");
-    } catch (error: any) {
-      console.error(
-        `Error calling ${isOllama ? "Ollama" : "zAI GLM"}:`,
-        error.response?.data || error.message
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
       );
-      throw new Error(
-        error.response?.data?.error?.message ||
-          `Error al comunicarse con el modelo de IA (${isOllama ? "Ollama" : "zAI"})`
+
+      return (response.data.response || "Lo siento, no pude generar una respuesta.");
+    } else if (apiKey) {
+      // Llamada a zAI GLM (retrocompatibilidad)
+      const response = await axios.post(
+        `${baseUrls.zAI}/chat/completions`,
+        {
+          model: model,
+          messages: messages,
+          temperature: 0.7,
+          max_tokens: 500,
+          stream: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      return (
+        response.data.choices[0]?.message?.content ||
+        "Lo siento, no pude generar una respuesta."
       );
     }
-  }
 
-  // Función helper para llamar a zAI GLM (mantenida para compatibilidad)
-  async function callZAIGLM(messages: any[]): Promise<string> {
-    return callLLM(messages, ZAI_MODEL, ZAI_API_KEY, { zAI: ZAI_BASE_URL });
+    throw new Error("No hay configuración de IA disponible");
+  } catch (error: any) {
+    const isOllama = OLLAMA_HOST.includes("cos-alicante") || process.env.OLLAMA_HOST;
+    console.error(
+      `Error calling ${isOllama ? "Ollama" : "zAI GLM"}:`,
+      error.response?.data || error.message
+    );
+    throw new Error(
+      error.response?.data?.error?.message ||
+        `Error al comunicarse con el modelo de IA (${isOllama ? "Ollama" : "zAI"})`
+    );
   }
+}
+
+// Función helper para llamar a zAI GLM (mantenida para compatibilidad)
+async function callZAIGLM(messages: any[]): Promise<string> {
+  return callLLM(messages, ZAI_MODEL, ZAI_API_KEY, { zAI: ZAI_BASE_URL });
+}
 
 const app = express();
 app.use(cors());
