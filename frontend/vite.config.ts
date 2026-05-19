@@ -7,7 +7,7 @@ export default defineConfig({
     port: 2000,
     host: '0.0.0.0',
     allowedHosts: [
-      "rpi3.netbird.vpn", // 👈 aquí tu dominio
+      "rpi2.netbird.vpn", // 👈 aquí tu dominio
     ],
   },
   resolve: {
