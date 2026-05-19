@@ -63,8 +63,8 @@ const ZAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 // Configuración de Ollama Local
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1";
-const OLLAMA_BASE_URL = OLLAMA_HOST
-  ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/generate`
+const OLLAMA_CHAT_URL = OLLAMA_HOST
+  ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/chat`
   : "";
 
 // Función auxiliar para llamar al modelo de IA (soporta zAI y Ollama)
@@ -79,15 +79,22 @@ async function callLLM(
     const isOllama = !!OLLAMA_HOST;
 
     if (isOllama) {
-      // Llamada a Ollama
+      // Llamada a Ollama usando /api/chat
+      const ollamaMessages = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      console.log("[Ollama Request] URL:", OLLAMA_CHAT_URL);
+      console.log("[Ollama Request] Model:", OLLAMA_MODEL);
+      console.log("[Ollama Request] Messages:", ollamaMessages);
+
       const response = await axios.post(
-        OLLAMA_BASE_URL,
+        OLLAMA_CHAT_URL,
         {
           model: OLLAMA_MODEL,
-          prompt: messages
-            .filter((m) => m.role !== "system") // Ollama no usa role: system
-            .map((m) => `${m.role}: ${m.content}`)
-            .join("\n"),
+          messages: ollamaMessages,
+          stream: false,
           options: {
             temperature: 0.7,
             top_p: 0.9,
@@ -100,7 +107,15 @@ async function callLLM(
         }
       );
 
-      return (response.data.response || "Lo siento, no pude generar una respuesta.");
+      console.log("[Ollama Response] Status:", response.status);
+      console.log("[Ollama Response] Data:", JSON.stringify(response.data, null, 2));
+
+      const reply = response.data.message?.content || response.data.response || "";
+      if (!reply) {
+        console.error("[Ollama Error] Empty response, full data:", response.data);
+        return "Lo siento, no pude generar una respuesta.";
+      }
+      return reply;
     } else if (apiKey) {
       // Llamada a zAI GLM (retrocompatibilidad)
       const response = await axios.post(
@@ -130,9 +145,13 @@ async function callLLM(
   } catch (error: any) {
     const isOllama = !!OLLAMA_HOST;
     console.error(
-      `Error calling ${isOllama ? "Ollama" : "zAI GLM"}:`,
+      `[LLM Error] ${isOllama ? "Ollama" : "zAI GLM"}:`,
       error.response?.data || error.message
     );
+    if (error.response) {
+      console.error("[LLM Error] Status:", error.response.status);
+      console.error("[LLM Error] Headers:", error.response.headers);
+    }
     throw new Error(
       error.response?.data?.error?.message ||
         `Error al comunicarse con el modelo de IA (${isOllama ? "Ollama" : "zAI"})`
