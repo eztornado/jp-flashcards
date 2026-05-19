@@ -61,10 +61,11 @@ const ZAI_MODEL = process.env.ZAI_MODEL || "glm-4-flash";
 const ZAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 
 // Configuración de Ollama Local
-const OLLAMA_HOST =
-  process.env.OLLAMA_HOST || "http://cos-alicante.netbird.vpn";
+const OLLAMA_HOST = process.env.OLLAMA_HOST || "";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1";
-const OLLAMA_BASE_URL = `${OLLAMA_HOST}/api/generate`;
+const OLLAMA_BASE_URL = OLLAMA_HOST
+  ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/generate`
+  : "";
 
 // Función auxiliar para llamar al modelo de IA (soporta zAI y Ollama)
 async function callLLM(
@@ -75,7 +76,7 @@ async function callLLM(
 ): Promise<string> {
   try {
     // Verificar si estamos usando Ollama
-    const isOllama = OLLAMA_HOST.includes("cos-alicante") || process.env.OLLAMA_HOST;
+    const isOllama = !!OLLAMA_HOST;
 
     if (isOllama) {
       // Llamada a Ollama
@@ -127,7 +128,7 @@ async function callLLM(
 
     throw new Error("No hay configuración de IA disponible");
   } catch (error: any) {
-    const isOllama = OLLAMA_HOST.includes("cos-alicante") || process.env.OLLAMA_HOST;
+    const isOllama = !!OLLAMA_HOST;
     console.error(
       `Error calling ${isOllama ? "Ollama" : "zAI GLM"}:`,
       error.response?.data || error.message
@@ -535,8 +536,8 @@ app.delete("/api/words", (req, res) => {
 // GET /api/chat/test - Verificar que el modelo de IA está configurado correctamente
 app.get("/api/chat/test", async (req, res) => {
   // Intentar detectar si Ollama está configurado
-  const isOllamaConfigured = process.env.OLLAMA_HOST;
-  const ollamaUrl = process.env.OLLAMA_HOST || "";
+  const isOllamaConfigured = !!OLLAMA_HOST;
+  const ollamaUrl = OLLAMA_HOST || "";
 
   if (!isOllamaConfigured && !ZAI_API_KEY) {
     return res.status(500).json({
@@ -568,7 +569,7 @@ app.get("/api/chat/test", async (req, res) => {
       message: `IA (${isOllamaConfigured ? "Ollama" : "zAI"}) está configurado correctamente!`,
     });
   } catch (error: any) {
-    const service = process.env.OLLAMA_HOST ? "Ollama" : "zAI";
+    const service = OLLAMA_HOST ? "Ollama" : "zAI";
     res.status(500).json({
       configured: false,
       error: error.message,
@@ -621,7 +622,7 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
   const { message, language = "ja" } = req.body;
 
   // Verificar si hay algún modelo de IA configurado
-  const isOllamaConfigured = !!process.env.OLLAMA_HOST;
+  const isOllamaConfigured = !!OLLAMA_HOST;
 
   if (!isOllamaConfigured && !ZAI_API_KEY) {
     return res.status(500).json({
