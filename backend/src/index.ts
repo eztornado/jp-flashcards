@@ -34,6 +34,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_words_kanji_romaji
 ON words (kanji, romaji);
 `);
 
+// Crear tabla para kanji exclusivo
+db.exec(`
+CREATE TABLE IF NOT EXISTS kanji (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kanji TEXT NOT NULL,
+  onyomi TEXT,
+  kunyomi TEXT,
+  translation TEXT NOT NULL
+);
+`);
+
+db.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kanji_kanji
+ON kanji (kanji);
+`);
+
 // Crear tabla para historial de chat
 db.exec(`
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -185,12 +201,35 @@ const WordUpdate = z.object({
   translation: z.string().min(1),
 });
 
+const KanjiCreate = z.object({
+  kanji: z.string().min(1).max(50),
+  onyomi: z.string().max(255).optional(),
+  kunyomi: z.string().max(255).optional(),
+  translation: z.string().min(1).max(255),
+});
+const KanjiUpdate = z.object({
+  kanji: z.string().min(1).max(50),
+  onyomi: z.string().max(255).optional(),
+  kunyomi: z.string().max(255).optional(),
+  translation: z.string().min(1).max(255),
+});
+
 // Helpers
 function rowToWord(row: any) {
   return {
     id: row.id,
     kanji: row.kanji,
     romaji: row.romaji ?? "",
+    translation: row.translation,
+  };
+}
+
+function rowToKanji(row: any) {
+  return {
+    id: row.id,
+    kanji: row.kanji,
+    onyomi: row.onyomi ?? "",
+    kunyomi: row.kunyomi ?? "",
     translation: row.translation,
   };
 }
@@ -274,6 +313,101 @@ app.delete("/api/words/:id", (req, res) => {
   const info = db.prepare("DELETE FROM words WHERE id=?").run(id);
   if (info.changes === 0) return res.status(404).json({ error: "Not found" });
   res.json({ ok: true });
+});
+
+// ============ KANJI ENDPOINTS ============
+
+// GET /api/kanji/random
+app.get("/api/kanji/random", (req, res) => {
+  const row = db.prepare("SELECT * FROM kanji ORDER BY RANDOM() LIMIT 1").get();
+  if (!row) return res.status(404).json({ error: "No kanji found" });
+  return res.json(rowToKanji(row));
+});
+
+// GET /api/kanji?search=&page=1&pageSize=20
+app.get("/api/kanji", (req, res) => {
+  const search = (req.query.search as string | undefined)?.trim() ?? "";
+  const page = Math.max(parseInt((req.query.page as string) || "1", 10), 1);
+  const pageSize = Math.min(
+    Math.max(parseInt((req.query.pageSize as string) || "20", 10), 1),
+    100,
+  );
+  const offset = (page - 1) * pageSize;
+
+  let where = "";
+  let params: any[] = [];
+  if (search) {
+    where = "WHERE kanji LIKE ? OR onyomi LIKE ? OR kunyomi LIKE ? OR translation LIKE ?";
+    const like = `%${search}%`;
+    params = [like, like, like, like];
+  }
+  const totalRow = db
+    .prepare(`SELECT COUNT(*) as cnt FROM kanji ${where}`)
+    .get(...params);
+  const total = (totalRow as any).cnt as number;
+
+  const rows = db
+    .prepare(`SELECT * FROM kanji ${where} ORDER BY id DESC LIMIT ? OFFSET ?`)
+    .all(...params, pageSize, offset);
+  const items = rows.map(rowToKanji);
+
+  res.json({ items, total, page, pageSize });
+});
+
+// POST /api/kanji
+app.post("/api/kanji", (req, res) => {
+  const parsed = KanjiCreate.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: parsed.error.flatten() });
+  const { kanji, onyomi, kunyomi, translation } = parsed.data;
+  const stmt = db.prepare(
+    "INSERT INTO kanji (kanji, onyomi, kunyomi, translation) VALUES (?, ?, ?, ?)",
+  );
+  const info = stmt.run(kanji, onyomi ?? "", kunyomi ?? "", translation);
+  const row = db
+    .prepare("SELECT * FROM kanji WHERE id = ?")
+    .get(info.lastInsertRowid);
+  res.status(201).json(rowToKanji(row));
+});
+
+// PUT /api/kanji/:id
+app.put("/api/kanji/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id))
+    return res.status(400).json({ error: "Invalid id" });
+  const parsed = KanjiUpdate.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: parsed.error.flatten() });
+  const { kanji, onyomi, kunyomi, translation } = parsed.data;
+  const stmt = db.prepare(
+    "UPDATE kanji SET kanji=?, onyomi=?, kunyomi=?, translation=? WHERE id=?",
+  );
+  const info = stmt.run(kanji, onyomi ?? "", kunyomi ?? "", translation, id);
+  if (info.changes === 0) return res.status(404).json({ error: "Not found" });
+  const row = db.prepare("SELECT * FROM kanji WHERE id = ?").get(id);
+  res.json(rowToKanji(row));
+});
+
+// DELETE /api/kanji/:id
+app.delete("/api/kanji/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id))
+    return res.status(400).json({ error: "Invalid id" });
+  const info = db.prepare("DELETE FROM kanji WHERE id=?").run(id);
+  if (info.changes === 0) return res.status(404).json({ error: "Not found" });
+  res.json({ ok: true });
+});
+
+// DELETE /api/kanji  -> elimina TODOS los kanji
+app.delete("/api/kanji", (req, res) => {
+  const info = db.prepare("DELETE FROM kanji").run();
+  try {
+    db.exec("DELETE FROM sqlite_sequence WHERE name='kanji'");
+  } catch {}
+  try {
+    db.exec("VACUUM");
+  } catch {}
+  res.json({ deleted: info.changes });
 });
 
 // ============ QUIZ ENDPOINTS ============

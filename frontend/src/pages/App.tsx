@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react'
-import { AppShell, Button, Card, Center, Group, Stack, Text, Title, Burger, Drawer, ScrollArea } from '@mantine/core'
+import { AppShell, Button, Card, Center, Group, Stack, Text, Title, Burger, Drawer, ScrollArea, SegmentedControl } from '@mantine/core'
 import { IconEye, IconRefresh, IconVolume, IconMessageCircle, IconBrain, IconSettings } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 import { useDisclosure } from '@mantine/hooks'
 
 type Word = { id: number; kanji: string; romaji?: string; translation: string }
+type Kanji = { id: number; kanji: string; onyomi?: string; kunyomi?: string; translation: string }
 
 export default function App() {
+  const [mode, setMode] = useState<'vocabulario' | 'kanji'>('vocabulario')
   const [word, setWord] = useState<Word | null>(null)
+  const [kanji, setKanji] = useState<Kanji | null>(null)
   const [showTranslation, setShowTranslation] = useState(false)
   const [opened, { open, close }] = useDisclosure(false)
 
@@ -36,16 +39,24 @@ export default function App() {
 
   const fetchRandom = async () => {
     setShowTranslation(false)
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/random')
-    const data = await res.json()
-    setWord(data)
+    if (mode === 'vocabulario') {
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/random')
+      const data = await res.json()
+      setWord(data)
+      setKanji(null)
+    } else {
+      const res = await fetch('http://rpi2.netbird.vpn:3000/api/kanji/random')
+      const data = await res.json()
+      setKanji(data)
+      setWord(null)
+    }
   }
-  useEffect(() => { fetchRandom() }, [])
+  useEffect(() => { fetchRandom() }, [mode])
 
   // ---------- TTS: hablar la palabra (kanji) ----------
   const speak = () => {
-    if (!word || !('speechSynthesis' in window)) return
-    const text = word.kanji || '' // leeremos el kanji
+    if (!('speechSynthesis' in window)) return
+    const text = (mode === 'vocabulario' ? word?.kanji : kanji?.kanji) || ''
     if (!text) return
 
     // Cancelar cualquier reproducción anterior
@@ -129,27 +140,59 @@ export default function App() {
             <Center style={{ minHeight: 'calc(100vh - 60px)', padding: '1rem' }}>
               <Card shadow="sm" radius="lg" padding="md" withBorder style={{ width: '100%', maxWidth: 520 }}>
                 <Stack gap="md" align="center">
-                  <Title order={2} ta="center">{word?.kanji ?? '...'}</Title>
-                  <Text c="dimmed" size="md">{word?.romaji}</Text>
+                  <SegmentedControl
+                    data={[
+                      { label: 'Vocabulario', value: 'vocabulario' },
+                      { label: 'Kanji', value: 'kanji' },
+                    ]}
+                    value={mode}
+                    onChange={(v) => setMode(v as 'vocabulario' | 'kanji')}
+                    fullWidth
+                  />
 
-                  {showTranslation ? (
-                      <Text size="md" ta="center">{word?.translation}</Text>
+                  {mode === 'vocabulario' ? (
+                    <>
+                      <Title order={2} ta="center">{word?.kanji ?? '...'}</Title>
+                      <Text c="dimmed" size="md">{word?.romaji}</Text>
+
+                      {showTranslation ? (
+                        <Text size="md" ta="center">{word?.translation}</Text>
+                      ) : (
+                        <Text size="md" ta="center" c="dimmed">Traducción oculta</Text>
+                      )}
+                    </>
                   ) : (
-                      <Text size="md" ta="center" c="dimmed">Traducción oculta</Text>
+                    <>
+                      <Title order={2} ta="center">{kanji?.kanji ?? '...'}</Title>
+                      <Stack gap="xs" align="center">
+                        {kanji?.onyomi && (
+                          <Text size="sm" c="dimmed">Onyomi: {kanji.onyomi}</Text>
+                        )}
+                        {kanji?.kunyomi && (
+                          <Text size="sm" c="dimmed">Kunyomi: {kanji.kunyomi}</Text>
+                        )}
+                      </Stack>
+
+                      {showTranslation ? (
+                        <Text size="md" ta="center">{kanji?.translation}</Text>
+                      ) : (
+                        <Text size="md" ta="center" c="dimmed">Traducción oculta</Text>
+                      )}
+                    </>
                   )}
 
                   <Stack w="100%" gap="xs">
                     <Group justify="center" wrap="wrap" gap="xs">
-                      <Button 
-                        leftSection={<IconEye size={16} />} 
+                      <Button
+                        leftSection={<IconEye size={16} />}
                         onClick={() => setShowTranslation(s => !s)}
                         size="sm"
                       >
                         {showTranslation ? 'Ocultar' : 'Mostrar'}
                       </Button>
-                      <Button 
-                        leftSection={<IconRefresh size={16} />} 
-                        variant="outline" 
+                      <Button
+                        leftSection={<IconRefresh size={16} />}
+                        variant="outline"
                         onClick={fetchRandom}
                         size="sm"
                       >
@@ -157,12 +200,12 @@ export default function App() {
                       </Button>
                       {/* ---------- TTS: botón ---------- */}
                       <Button
-                          leftSection={<IconVolume size={16} />}
-                          variant="default"
-                          onClick={speak}
-                          disabled={!speechReady || !word}
-                          title={!speechReady ? 'TTS no disponible en este navegador' : 'Reproducir pronunciación'}
-                          size="sm"
+                        leftSection={<IconVolume size={16} />}
+                        variant="default"
+                        onClick={speak}
+                        disabled={!speechReady || !(mode === 'vocabulario' ? word : kanji)}
+                        title={!speechReady ? 'TTS no disponible en este navegador' : 'Reproducir pronunciación'}
+                        size="sm"
                       >
                         Escuchar
                       </Button>
@@ -172,9 +215,9 @@ export default function App() {
 
                   {/* Mensaje de compatibilidad opcional */}
                   {!speechReady && (
-                      <Text size="xs" c="dimmed" ta="center">
-                        El TTS no está disponible en este navegador/dispositivo.
-                      </Text>
+                    <Text size="xs" c="dimmed" ta="center">
+                      El TTS no está disponible en este navegador/dispositivo.
+                    </Text>
                   )}
                 </Stack>
               </Card>
