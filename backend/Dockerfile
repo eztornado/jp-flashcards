@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Instalar dependencias de compilación para módulos nativos
+RUN apk add --no-cache python3 make g++
+
 # Copiar package files
 COPY package*.json ./
 
@@ -40,8 +43,8 @@ EXPOSE 3000
 ENV DATA_PATH=/app/data
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/random', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "try { require('http').get('http://localhost:3000/api/random', (r) => { if (r.statusCode === 200) process.exit(0); else process.exit(1); }).on('error', () => process.exit(1)); } catch(e) { process.exit(1); }"
 
 # Iniciar aplicación
 CMD ["node", "dist/index.js"]
