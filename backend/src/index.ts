@@ -912,6 +912,15 @@ app.delete("/api/chat/sessions/:id", (req, res) => {
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`Backend listening on http://${HOST}:${PORT}`);
+});
+
+// Manejar errores del servidor
+server.on('error', (error: any) => {
+  console.error('[ERROR] Server error:', error);
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[ERROR] Port ${PORT} is already in use`);
+  }
+  process.exit(1);
 });
