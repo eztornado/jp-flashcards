@@ -15,12 +15,23 @@ const __dirname = path.dirname(__filename);
 // DB path con soporte para Docker y local
 const DATA_PATH = process.env.DATA_PATH || path.resolve(__dirname, "..", "data");
 const dbPath = path.join(DATA_PATH, "words.sqlite");
+console.log(`[INFO] Database path: ${dbPath}`);
+console.log(`[INFO] DATA_PATH: ${DATA_PATH}`);
 // Asegurar que el directorio de datos existe
 import fs from "fs";
 if (!fs.existsSync(DATA_PATH)) {
+    console.log(`[INFO] Creating data directory: ${DATA_PATH}`);
     fs.mkdirSync(DATA_PATH, { recursive: true });
 }
-const db = new Database(dbPath);
+let db;
+try {
+    db = new Database(dbPath);
+    console.log('[INFO] Database connected successfully');
+}
+catch (error) {
+    console.error('[ERROR] Failed to initialize database:', error);
+    process.exit(1);
+}
 // Ensure table exists
 db.exec(`
 CREATE TABLE IF NOT EXISTS words (
