@@ -1,13 +1,22 @@
-import express from "express";
+import express, { Request } from "express";
 import cors from "cors";
 import Database from "better-sqlite3";
 import { z } from "zod";
 import path from "path";
 import { fileURLToPath } from "url";
-import multer from "multer";
+import multer, { FileFilterCallback } from "multer";
 import * as XLSX from "xlsx";
 import axios from "axios";
 import dotenv from "dotenv";
+
+// Extender tipos de Express para multer
+declare global {
+  namespace Express {
+    interface Request {
+      file?: Express.Multer.File;
+    }
+  }
+}
 
 // Cargar variables de entorno
 dotenv.config();
@@ -15,8 +24,16 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// DB path (../data/words.sqlite)
-const dbPath = path.resolve(__dirname, "..", "data", "words.sqlite");
+// DB path con soporte para Docker y local
+const DATA_PATH = process.env.DATA_PATH || path.resolve(__dirname, "..", "data");
+const dbPath = path.join(DATA_PATH, "words.sqlite");
+
+// Asegurar que el directorio de datos existe
+import fs from "fs";
+if (!fs.existsSync(DATA_PATH)) {
+  fs.mkdirSync(DATA_PATH, { recursive: true });
+}
+
 const db = new Database(dbPath);
 
 // Ensure table exists
@@ -522,11 +539,12 @@ app.get("/api/quiz/fill-romaji", (req, res) => {
 app.post("/api/quiz/check", (req, res) => {
   const { wordId, answer, type } = req.body;
 
-  const word = db.prepare("SELECT * FROM words WHERE id = ?").get(wordId);
-  if (!word) {
+  const row = db.prepare("SELECT * FROM words WHERE id = ?").get(wordId);
+  if (!row) {
     return res.status(404).json({ error: "Word not found" });
   }
 
+  const word = rowToWord(row);
   let isCorrect = false;
   let correctAnswer = "";
 
@@ -880,7 +898,7 @@ app.delete("/api/chat/sessions/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
 
 app.listen(PORT, HOST, () => {

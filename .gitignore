@@ -31,3 +31,10 @@ yarn-error.log*
 *.njsproj
 *.sln
 .env
+
+# Docker y datos
+backend/data/
+frontend/dist/
+
+# Build outputs
+*.log
