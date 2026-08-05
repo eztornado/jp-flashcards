@@ -267,13 +267,14 @@ export default function Quiz() {
       setIsTranslationCorrect(result.isCorrect)
       setShowTranslationResult(true)
       setTotalAnswered(totalAnswered + 1)
-      
+
       if (result.isCorrect) {
         setScore(score + 1)
         setStreak(streak + 1)
         notifications.show({
           color: 'teal',
           title: '¡Correcto!',
+          message: 'Respuesta correcta',
           icon: <IconCheck />
         })
       } else {
@@ -309,13 +310,14 @@ export default function Quiz() {
       setIsRomajiCorrect(result.isCorrect)
       setShowRomajiResult(true)
       setTotalAnswered(totalAnswered + 1)
-      
+
       if (result.isCorrect) {
         setScore(score + 1)
         setStreak(streak + 1)
         notifications.show({
           color: 'teal',
           title: '¡Correcto!',
+          message: 'Respuesta correcta',
           icon: <IconCheck />
         })
       } else {

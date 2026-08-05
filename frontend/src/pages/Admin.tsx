@@ -212,65 +212,6 @@ export default function Admin() {
       notifications.show({ color: 'red', title: 'Error', message: e?.message || 'No se pudo limpiar la BD' });
     }
   }
-  async function load() {
-    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), search })
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/words?' + params.toString())
-    const data = await res.json()
-    setItems(data.items)
-    setTotal(data.total)
-  }
-
-  useEffect(() => { load() }, [page, search])
-
-  function openNew() {
-    setEditing(null)
-    setForm({ kanji: '', romaji: '', translation: '' })
-    setOpened(true)
-  }
-  function openEdit(w: Word) {
-    setEditing(w)
-    setForm({ kanji: w.kanji, romaji: w.romaji ?? '', translation: w.translation })
-    setOpened(true)
-  }
-  async function save() {
-    const method = editing ? 'PUT' : 'POST'
-    const url = editing ? 'http://rpi2.netbird.vpn:3000/api/words/' + editing.id : '/api/words'
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form)
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      notifications.show({ color: 'red', title: 'Error', message: JSON.stringify(err) })
-      return
-    }
-    setOpened(false)
-    notifications.show({ color: 'teal', title: 'Guardado', message: 'Palabra guardada' })
-    load()
-  }
-  async function remove(id: number) {
-    if (!confirm('¿Eliminar esta palabra?')) return
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/words/' + id, { method: 'DELETE' })
-    if (res.ok) {
-      notifications.show({ color: 'teal', title: 'Eliminada', message: 'Palabra eliminada' })
-      load()
-    }
-  }
-
-  const rows = items.map((w) => (
-    <Table.Tr key={w.id} onDoubleClick={() => openEdit(w)}>
-      <Table.Td>{w.kanji}</Table.Td>
-      <Table.Td>{w.romaji}</Table.Td>
-      <Table.Td>{w.translation}</Table.Td>
-      <Table.Td width={120}>
-        <Group gap="xs" justify="end">
-          <Button size="xs" variant="light" onClick={() => openEdit(w)}>Editar</Button>
-          <Button size="xs" color="red" leftSection={<IconTrash size={14} />} onClick={() => remove(w.id)}>Borrar</Button>
-        </Group>
-      </Table.Td>
-    </Table.Tr>
-  ))
 
   return (
     <AppShell header={{ height: 60 }}>
