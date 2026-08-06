@@ -1,17 +1,21 @@
 #!/bin/sh
 set -e
 
+echo "[ENTRYPOINT] Starting entrypoint script"
+echo "[ENTRYPOINT] Current user: $(whoami)"
+echo "[ENTRYPOINT] /app/data directory info:"
+ls -la /app/data || echo "[ENTRYPOINT] /app/data does not exist yet"
+
 # Fix permissions for /app/data directory
-# This is necessary when a volume is mounted that may have incorrect permissions
 if [ -d /app/data ]; then
-  echo "[INFO] /app/data exists, fixing permissions"
-  chmod -R 777 /app/data || echo "[WARN] Could not fix permissions on /app/data"
+  echo "[ENTRYPOINT] /app/data exists, fixing permissions"
+  chmod -R 777 /app/data || echo "[ENTRYPOINT WARNING] Could not fix permissions on /app/data"
 else
-  echo "[INFO] Creating /app/data directory"
+  echo "[ENTRYPOINT] Creating /app/data directory"
   mkdir -p /app/data
   chmod 777 /app/data
 fi
 
-# Run as node user
+echo "[ENTRYPOINT] Switching to node user and running: $@"
 exec su-exec node:node "$@"
 
