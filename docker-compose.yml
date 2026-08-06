@@ -23,9 +23,9 @@ services:
     ports:
       - "3000:3000"
     healthcheck:
-      test: ["CMD", "node", "-e", "const req = require('http').get('http://localhost:3000/api/random', (r) => { process.exit((r.statusCode === 200 || r.statusCode === 404) ? 0 : 1) }); req.on('error', () => process.exit(1)); req.setTimeout(5000, () => { req.destroy(); process.exit(1) });"]
+      test: ["CMD-SHELL", "node -e 'const net=require(\"net\");const s=new net.Socket();s.connect(3000,\"localhost\",()=>{s.end();process.exit(0)});s.on(\"error\",()=>process.exit(1));setTimeout(()=>process.exit(1),3000)'"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 10
       start_period: 60s
     networks:

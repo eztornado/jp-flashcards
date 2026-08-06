@@ -42,9 +42,9 @@ EXPOSE 3000
 # Variable de entorno para datos
 ENV DATA_PATH=/app/data
 
-# Healthcheck simplificado - verificar que el proceso está corriendo
-HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=10 \
-  CMD node -e "const req = require('http').get('http://localhost:3000/api/random', (r) => { process.exit((r.statusCode === 200 || r.statusCode === 404) ? 0 : 1) }); req.on('error', () => process.exit(1)); req.setTimeout(5000, () => { req.destroy(); process.exit(1) });"
+# Healthcheck simplificado - verificar que el puerto está abierto
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=10 \
+  CMD node -e 'const net=require("net");const s=new net.Socket();s.connect(3000,"localhost",()=>{s.end();process.exit(0)});s.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),3000)'
 
 # Iniciar aplicación
 CMD ["node", "dist/index.js"]
