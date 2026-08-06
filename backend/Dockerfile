@@ -45,10 +45,6 @@ EXPOSE 3000
 # Variable de entorno para datos
 ENV DATA_PATH=/app/data
 
-# Healthcheck que siempre pasa (exit 0) - para debug
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD exit 0
-
 # Usar entrypoint para arreglar permisos y ejecutar como node
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

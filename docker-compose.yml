@@ -17,17 +17,18 @@ services:
       # Configuración zAI (opcional)
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-}
-    volumes:
-      # Persistencia de la base de datos SQLite
-      - jp-data:/app/data
+    # Temporarily disable volume to test
+    # volumes:
+    #   # Persistencia de la base de datos SQLite
+    #   - jp-data:/app/data
     ports:
       - "3000:3000"
     healthcheck:
       test: ["CMD", "exit", "0"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 180s
     networks:
       - jp-network
 
