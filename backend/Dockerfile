@@ -23,9 +23,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalar dependencias de producción y su-exec
-RUN apk add --no-cache su-exec
-
+# Instalar dependencias de producción
 COPY package*.json ./
 RUN npm ci --only=production
 
@@ -35,16 +33,11 @@ COPY --from=builder /app/dist ./dist
 # Crear directorio para datos
 RUN mkdir -p /app/data
 
-# Copiar entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
 # Exponer puerto
 EXPOSE 3000
 
 # Variable de entorno para datos
 ENV DATA_PATH=/app/data
 
-# Usar entrypoint para arreglar permisos y ejecutar como node
-ENTRYPOINT ["docker-entrypoint.sh"]
+# Iniciar aplicación directamente (sin entrypoint)
 CMD ["node", "dist/index.js"]

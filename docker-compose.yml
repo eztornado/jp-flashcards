@@ -23,12 +23,7 @@ services:
     #   - jp-data:/app/data
     ports:
       - "3000:3000"
-    healthcheck:
-      test: ["CMD", "exit", "0"]
-      interval: 60s
-      timeout: 30s
-      retries: 5
-      start_period: 180s
+    # No healthcheck - Coolify has its own
     networks:
       - jp-network
 
@@ -39,8 +34,7 @@ services:
     container_name: jp-flashcards-frontend
     restart: unless-stopped
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     ports:
       - "80:80"
     healthcheck:
