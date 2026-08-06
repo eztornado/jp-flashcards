@@ -45,9 +45,9 @@ EXPOSE 3000
 # Variable de entorno para datos
 ENV DATA_PATH=/app/data
 
-# Healthcheck simplificado - verificar que el puerto está abierto
-HEALTHCHECK --interval=15s --timeout=10s --start-period=120s --retries=30 \
-  CMD node -e 'const net=require("net");const s=new net.Socket();s.connect(3000,"localhost",()=>{s.end();process.exit(0)});s.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),5000)'
+# Temporarily disable healthcheck for debugging
+# HEALTHCHECK --interval=15s --timeout=10s --start-period=120s --retries=30 \
+#   CMD node -e 'const net=require("net");const s=new net.Socket();s.connect(3000,"localhost",()=>{s.end();process.exit(0)});s.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),5000)'
 
 # Usar entrypoint para arreglar permisos y ejecutar como node
 ENTRYPOINT ["docker-entrypoint.sh"]

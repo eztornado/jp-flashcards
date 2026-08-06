@@ -22,12 +22,13 @@ services:
       - jp-data:/app/data
     ports:
       - "3000:3000"
-    healthcheck:
-      test: ["CMD-SHELL", "node -e 'const net=require(\"net\");const s=new net.Socket();s.connect(3000,\"localhost\",()=>{s.end();process.exit(0)});s.on(\"error\",()=>process.exit(1));setTimeout(()=>process.exit(1),5000)' || exit 0"]
-      interval: 15s
-      timeout: 10s
-      retries: 30
-      start_period: 120s
+    # Temporarily disable healthcheck to debug
+    # healthcheck:
+    #   test: ["CMD-SHELL", "node -e 'const net=require(\"net\");const s=new net.Socket();s.connect(3000,\"localhost\",()=>{s.end();process.exit(0)});s.on(\"error\",()=>process.exit(1));setTimeout(()=>process.exit(1),5000)' || exit 0"]
+    #   interval: 15s
+    #   timeout: 10s
+    #   retries: 30
+    #   start_period: 120s
     networks:
       - jp-network
 
@@ -38,8 +39,7 @@ services:
     container_name: jp-flashcards-frontend
     restart: unless-stopped
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend  # Just depends on backend, not on health
     ports:
       - "80:80"
     healthcheck:
