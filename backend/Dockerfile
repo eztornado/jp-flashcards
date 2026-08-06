@@ -44,7 +44,7 @@ ENV DATA_PATH=/app/data
 
 # Healthcheck simplificado - verificar que el proceso está corriendo
 HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=10 \
-  CMD node -e "require('http').get('http://localhost:3000/api/random', (r) => process.exit((r.statusCode === 200 || r.statusCode === 404) ? 0 : 1)).on('error', () => process.exit(1))"
+  CMD node -e "const req = require('http').get('http://localhost:3000/api/random', (r) => { process.exit((r.statusCode === 200 || r.statusCode === 404) ? 0 : 1) }); req.on('error', () => process.exit(1)); req.setTimeout(5000, () => { req.destroy(); process.exit(1) });"
 
 # Iniciar aplicación
 CMD ["node", "dist/index.js"]
