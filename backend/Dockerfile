@@ -23,18 +23,21 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalar dependencias de producción
+# Instalar dependencias de producción y su-exec
+RUN apk add --no-cache su-exec
+
 COPY package*.json ./
 RUN npm ci --only=production
 
 # Copiar archivos construidos
 COPY --from=builder /app/dist ./dist
 
-# Crear directorio para datos con permisos
-RUN mkdir -p /app/data && chown -R node:node /app/data
+# Crear directorio para datos
+RUN mkdir -p /app/data
 
-# Cambiar a usuario no-root
-USER node
+# Copiar entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Exponer puerto
 EXPOSE 3000
@@ -46,5 +49,6 @@ ENV DATA_PATH=/app/data
 HEALTHCHECK --interval=15s --timeout=10s --start-period=120s --retries=30 \
   CMD node -e 'const net=require("net");const s=new net.Socket();s.connect(3000,"localhost",()=>{s.end();process.exit(0)});s.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),5000)'
 
-# Iniciar aplicación
+# Usar entrypoint para arreglar permisos y ejecutar como node
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
