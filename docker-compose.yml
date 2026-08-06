@@ -23,7 +23,7 @@ services:
     ports:
       - "3000:3000"
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget --spider -q http://localhost:3000/api/random || [ $? -eq 8 ]"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/random', (r) => process.exit((r.statusCode === 200 || r.statusCode === 404) ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 10s
       retries: 10

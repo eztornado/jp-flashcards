@@ -23,9 +23,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalar wget para healthcheck y dependencias de producción
-RUN apk add --no-cache wget
-
+# Instalar dependencias de producción
 COPY package*.json ./
 RUN npm ci --only=production
 
@@ -46,7 +44,7 @@ ENV DATA_PATH=/app/data
 
 # Healthcheck simplificado - verificar que el proceso está corriendo
 HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=10 \
-  CMD sh -c "wget --spider -q http://localhost:3000/api/random || [ \$? -eq 8 ]"
+  CMD node -e "require('http').get('http://localhost:3000/api/random', (r) => process.exit((r.statusCode === 200 || r.statusCode === 404) ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Iniciar aplicación
 CMD ["node", "dist/index.js"]
