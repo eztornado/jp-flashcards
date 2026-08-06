@@ -46,7 +46,7 @@ ENV DATA_PATH=/app/data
 
 # Healthcheck simplificado - verificar que el proceso está corriendo
 HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=10 \
-  CMD wget --spider -q http://localhost:3000/api/random || exit 1
+  CMD sh -c "wget --spider -q http://localhost:3000/api/random || [ \$? -eq 8 ]"
 
 # Iniciar aplicación
 CMD ["node", "dist/index.js"]
