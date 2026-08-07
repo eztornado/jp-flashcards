@@ -41,9 +41,9 @@ ENV DATA_PATH=/app/data
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
-# Healthcheck que verifica el puerto con 127.0.0.1 (IPv4) en lugar de localhost (IPv6)
+# Healthcheck ultra simple con nc (netcat)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=10 \
-  CMD node -e "const net=require('net');const s=new net.Socket();const t=setTimeout(()=>s.destroy(),8000);s.connect(3000,'127.0.0.1',()=>{clearTimeout(t);s.end();process.exit(0)});s.on('error',()=>process.exit(1))"
+  CMD nc -z 127.0.0.1 3000 || exit 1
 
 # CMD normal de la aplicación
 CMD node dist/index.js
