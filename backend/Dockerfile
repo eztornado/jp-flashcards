@@ -44,11 +44,8 @@ ENV PORT=3000
 ENV HOST=0.0.0.0
 
 # Healthcheck inline que siempre pasa
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD true
 
-# Script de inicio con debug
-CMD echo "[START] Starting backend..."; \
-    echo "[START] PORT=$PORT, HOST=$HOST, DATA_PATH=$DATA_PATH"; \
-    node -e "console.log('[NODE] Node version:', process.version); console.log('[NODE] Working directory:', process.cwd());" && \
-    node dist/index.js
+# CMD más simple posible - solo sleep infinity para mantener contenedor corriendo
+CMD echo "[START] Container started with infinite sleep"; sleep infinity
