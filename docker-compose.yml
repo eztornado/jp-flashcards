@@ -33,8 +33,7 @@ services:
       dockerfile: Dockerfile
     container_name: jp-flashcards-frontend
     restart: unless-stopped
-    depends_on:
-      - backend
+    # No depends_on - let both start independently
     ports:
       - "80:80"
     healthcheck:
