@@ -916,6 +916,21 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`Backend listening on http://${HOST}:${PORT}`);
 });
 
+// Handler global de errores no tratados
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Promise Rejection detected!');
+  if (reason instanceof Error) {
+    console.error(`[ERROR] ${reason.message}`);
+  }
+  process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught Exception detected!');
+  console.error(`[ERROR] ${error?.message || error?.toString() || 'Unknown'}`);
+  process.exit(1);
+});
+
 // Manejar errores del servidor
 server.on('error', (error: any) => {
   console.error('[ERROR] Server error:', error);
