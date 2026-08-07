@@ -23,7 +23,12 @@ services:
     #   - jp-data:/app/data
     ports:
       - "3000:3000"
-    # No healthcheck - Coolify has its own
+    healthcheck:
+      test: ["CMD", "node", "-e", "const net=require('net');const s=new net.Socket();const t=setTimeout(()=>s.destroy(),8000);s.connect(3000,'localhost',()=>{clearTimeout(t);s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     networks:
       - jp-network
 

@@ -23,9 +23,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalar dependencias de producción y netstat para debug
-RUN apk add --no-cache net-tools
-
+# Instalar dependencias de producción
 COPY package*.json ./
 RUN npm ci --only=production
 
@@ -43,9 +41,9 @@ ENV DATA_PATH=/app/data
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
-# Healthcheck inline que siempre pasa
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD true
+# Healthcheck que verifica el puerto con timeout largo
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=10 \
+  CMD node -e "const net=require('net');const s=new net.Socket();const t=setTimeout(()=>s.destroy(),8000);s.connect(3000,'localhost',()=>{clearTimeout(t);s.end();process.exit(0)});s.on('error',()=>process.exit(1))"
 
-# CMD más simple posible - solo sleep infinity para mantener contenedor corriendo
-CMD echo "[START] Container started with infinite sleep"; sleep infinity
+# CMD normal de la aplicación
+CMD node dist/index.js
