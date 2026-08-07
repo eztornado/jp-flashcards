@@ -6,11 +6,11 @@ WORKDIR /app
 # Instalar dependencias de compilación para módulos nativos
 RUN apk add --no-cache python3 make g++
 
-# Copiar package files y crear directorios necesarios
-COPY . .
+# Copiar package files primero para mejor cache
+COPY package*.json ./
 
-# Instalar dependencias de producción (incluyendo headers para better-sqlite3)
-RUN npm ci --only=production || npm ci
+# Instalar TODAS las dependencias (incluyendo devDependencies para compilar)
+RUN npm ci
 
 # Copiar código fuente
 COPY . .
