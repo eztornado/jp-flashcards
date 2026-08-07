@@ -17,14 +17,13 @@ services:
       # Configuración zAI (opcional)
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-}
-    # Temporarily disable volume to test
-    # volumes:
-    #   # Persistencia de la base de datos SQLite
-    #   - jp-data:/app/data
+    volumes:
+      # Persistencia de la base de datos SQLite
+      - jp-data:/app/data
     ports:
       - "3000:3000"
     healthcheck:
-      test: ["CMD", "node", "-e", "const net=require('net');const s=new net.Socket();const t=setTimeout(()=>s.destroy(),8000);s.connect(3000,'localhost',()=>{clearTimeout(t);s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "const net=require('net');const s=new net.Socket();const t=setTimeout(()=>s.destroy(),8000);s.connect(3000,'127.0.0.1',()=>{clearTimeout(t);s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -38,7 +37,9 @@ services:
       dockerfile: Dockerfile
     container_name: jp-flashcards-frontend
     restart: unless-stopped
-    # No depends_on - let both start independently
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "80:80"
     networks:
