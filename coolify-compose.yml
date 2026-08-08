@@ -31,6 +31,7 @@ services:
       # Coolify labels
       - coolify.enable=true
       - coolify.name=JP Flashcards Backend
+      - coolify.port=3000
 
   frontend:
     build:
