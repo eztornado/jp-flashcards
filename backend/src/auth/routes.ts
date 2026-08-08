@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import Database from 'better-sqlite3';
-import { comparePassword, createToken, UserPayload } from './utils';
+import { comparePassword, createToken, UserPayload } from './utils.js';
 
 const LoginSchema = z.object({
   username: z.string().min(3).regex(/^[a-zA-Z0-9]+$/, 'Username must be alphanumeric'),
