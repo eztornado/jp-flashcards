@@ -32,6 +32,7 @@ import {
   IconVolume,
 } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api'
 
 type Word = { 
   id: number
@@ -112,15 +113,14 @@ export default function Quiz() {
   // Cargar quiz de emparejamiento
   const loadMatchingQuiz = async () => {
     try {
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/matching')
-      const words = await res.json()
+      const { data: words } = await api.get('/api/quiz/matching')
       setMatchingWords(words)
-      
+
       // Mezclar las traducciones
       const translations = words.map((w: Word) => w.translation)
       const shuffled = [...translations].sort(() => Math.random() - 0.5)
       setShuffledTranslations(shuffled)
-      
+
       setSelectedLeft(null)
       setSelectedRight(null)
       setMatchedPairs(new Set())
@@ -132,8 +132,7 @@ export default function Quiz() {
   // Cargar quiz de traducción
   const loadTranslationQuiz = async () => {
     try {
-      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/quiz/translation?mode=${translationMode}`)
-      const data = await res.json()
+      const { data } = await api.get(`/api/quiz/translation?mode=${translationMode}`)
       setTranslationWord(data)
       setTranslationAnswer('')
       setShowTranslationResult(false)
@@ -146,22 +145,17 @@ export default function Quiz() {
   // Cargar quiz de completar romaji
   const loadRomajiQuiz = async () => {
     try {
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/fill-romaji')
-      if (!res.ok) {
-        notifications.show({
-          color: 'red',
-          title: 'Error',
-          message: 'No hay palabras disponibles para este quiz'
-        })
-        return
-      }
-      const data = await res.json()
+      const { data } = await api.get('/api/quiz/fill-romaji')
       setRomajiWord(data)
       setRomajiAnswer('')
       setShowRomajiResult(false)
       setIsRomajiCorrect(false)
     } catch (error) {
-      console.error('Error loading romaji quiz:', error)
+      notifications.show({
+        color: 'red',
+        title: 'Error',
+        message: 'No hay palabras disponibles para este quiz'
+      })
     }
   }
 
@@ -251,19 +245,13 @@ export default function Quiz() {
   // Verificar traducción
   const checkTranslation = async () => {
     if (!translationWord || !translationAnswer.trim()) return
-    
+
     try {
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wordId: translationWord.word.id,
-          answer: translationAnswer,
-          type: `translation-${translationMode}`
-        })
+      const { data: result } = await api.post('/api/quiz/check', {
+        wordId: translationWord.word.id,
+        answer: translationAnswer,
+        type: `translation-${translationMode}`
       })
-      
-      const result = await res.json()
       setIsTranslationCorrect(result.isCorrect)
       setShowTranslationResult(true)
       setTotalAnswered(totalAnswered + 1)
@@ -294,19 +282,13 @@ export default function Quiz() {
   // Verificar romaji
   const checkRomaji = async () => {
     if (!romajiWord || !romajiAnswer.trim()) return
-    
+
     try {
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/quiz/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wordId: romajiWord.id,
-          answer: romajiAnswer,
-          type: 'fill-romaji'
-        })
+      const { data: result } = await api.post('/api/quiz/check', {
+        wordId: romajiWord.id,
+        answer: romajiAnswer,
+        type: 'fill-romaji'
       })
-      
-      const result = await res.json()
       setIsRomajiCorrect(result.isCorrect)
       setShowRomajiResult(true)
       setTotalAnswered(totalAnswered + 1)

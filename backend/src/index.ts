@@ -8,6 +8,8 @@ import multer, { FileFilterCallback } from "multer";
 import * as XLSX from "xlsx";
 import axios from "axios";
 import dotenv from "dotenv";
+import { authMiddleware, requireRole } from "./auth/middleware.js";
+import { createAuthRoutes } from "./auth/routes.js";
 
 // Extender tipos de Express para multer
 declare global {
@@ -97,6 +99,22 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
 );
+`);
+
+// Crear tabla para usuarios
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('USER', 'ADMIN')),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+db.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
+ON users(username);
 `);
 
 // Configuración de zAI GLM
@@ -212,10 +230,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Auth middleware (must be after express.json and before routes)
+app.use(authMiddleware);
+
 // Healthcheck endpoint - siempre devuelve 200
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
+
+// Auth routes
+app.use("/api/auth", createAuthRoutes(db));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -432,7 +456,7 @@ app.delete("/api/kanji/:id", (req, res) => {
 });
 
 // DELETE /api/kanji  -> elimina TODOS los kanji
-app.delete("/api/kanji", (req, res) => {
+app.delete("/api/kanji", requireRole('ADMIN'), (req, res) => {
   const info = db.prepare("DELETE FROM kanji").run();
   try {
     db.exec("DELETE FROM sqlite_sequence WHERE name='kanji'");
@@ -610,7 +634,7 @@ app.get("/api/quiz/stats", (req, res) => {
 });
 
 // POST /api/import (multipart/form-data)  field: file (xlsx)
-app.post("/api/import", upload.single("file"), (req, res) => {
+app.post("/api/import", upload.single("file"), requireRole('ADMIN'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Falta el archivo 'file' (.xlsx)" });
@@ -703,7 +727,7 @@ app.post("/api/import", upload.single("file"), (req, res) => {
 });
 
 // DELETE /api/words  -> elimina TODAS las filas
-app.delete("/api/words", (req, res) => {
+app.delete("/api/words", requireRole('ADMIN'), (req, res) => {
   // borra todo
   const info = db.prepare("DELETE FROM words").run();
   // opcional: resetea autoincrement
