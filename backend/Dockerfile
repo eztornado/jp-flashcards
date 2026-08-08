@@ -16,6 +16,9 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# Copiar script de creación de admin a la raíz
+RUN cp create-admin.js .
+
 # Stage final
 FROM node:20-alpine
 
@@ -30,6 +33,7 @@ RUN npm ci --only=production || npm ci
 
 # Copiar archivos construidos
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/create-admin.js ./create-admin.js
 
 # Crear directorio para datos
 RUN mkdir -p /app/data
