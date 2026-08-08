@@ -212,6 +212,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Healthcheck endpoint - siempre devuelve 200
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
