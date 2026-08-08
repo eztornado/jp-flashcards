@@ -35,6 +35,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api'
 
 type ChatSession = {
   id: number
@@ -114,8 +115,7 @@ export default function Chat() {
 
   const loadSessions = async () => {
     try {
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/chat/sessions')
-      const data = await res.json()
+      const { data } = await api.get('/api/chat/sessions')
       setSessions(data)
     } catch (error) {
       console.error('Error loading sessions:', error)
@@ -125,12 +125,7 @@ export default function Chat() {
   const createNewSession = async () => {
     const topicLabel = CHAT_TOPICS.find(t => t.value === selectedTopic)?.label || 'Chat General'
     try {
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/chat/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: topicLabel })
-      })
-      const newSession = await res.json()
+      const { data: newSession } = await api.post('/api/chat/sessions', { topic: topicLabel })
       setSessions([newSession, ...sessions])
       setCurrentSession(newSession)
       setMessages([])
@@ -151,8 +146,7 @@ export default function Chat() {
 
   const loadMessages = async (sessionId: number) => {
     try {
-      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/chat/sessions/${sessionId}/messages`)
-      const data = await res.json()
+      const { data } = await api.get(`/api/chat/sessions/${sessionId}/messages`)
       setMessages(data)
     } catch (error) {
       console.error('Error loading messages:', error)
@@ -182,21 +176,10 @@ export default function Chat() {
     setMessages(prev => [...prev, tempUserMessage])
 
     try {
-      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/chat/sessions/${currentSession.id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: userMessage,
-          language 
-        })
+      const { data: assistantMessage } = await api.post(`/api/chat/sessions/${currentSession.id}/messages`, {
+        message: userMessage,
+        language
       })
-
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || 'Error sending message')
-      }
-
-      const assistantMessage = await res.json()
       setMessages(prev => [...prev.filter(m => m.id !== tempUserMessage.id), assistantMessage])
       
       // Auto-play TTS for assistant response if in Japanese mode
@@ -218,24 +201,19 @@ export default function Chat() {
 
   const deleteSession = async (sessionId: number) => {
     if (!confirm('¿Eliminar esta conversación?')) return
-    
+
     try {
-      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/chat/sessions/${sessionId}`, {
-        method: 'DELETE'
-      })
-      
-      if (res.ok) {
-        setSessions(sessions.filter(s => s.id !== sessionId))
-        if (currentSession?.id === sessionId) {
-          setCurrentSession(null)
-          setMessages([])
-        }
-        notifications.show({
-          color: 'teal',
-          title: 'Eliminada',
-          message: 'Conversación eliminada'
-        })
+      await api.delete(`/api/chat/sessions/${sessionId}`)
+      setSessions(sessions.filter(s => s.id !== sessionId))
+      if (currentSession?.id === sessionId) {
+        setCurrentSession(null)
+        setMessages([])
       }
+      notifications.show({
+        color: 'teal',
+        title: 'Eliminada',
+        message: 'Conversación eliminada'
+      })
     } catch (error) {
       notifications.show({
         color: 'red',
