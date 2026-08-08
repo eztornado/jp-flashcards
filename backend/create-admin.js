@@ -1,8 +1,12 @@
 #!/usr/bin/env node
-const Database = require("better-sqlite3");
-const bcrypt = require("bcrypt");
-const readline = require("readline");
-const path = require("path");
+import Database from "better-sqlite3";
+import bcrypt from "bcrypt";
+import readline from "readline";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const DATA_PATH = process.env.DATA_PATH || path.join(__dirname, "data");
 const dbPath = path.join(DATA_PATH, "words.sqlite");
