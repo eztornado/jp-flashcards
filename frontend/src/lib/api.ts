@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://rpi2.netbird.vpn:3000";
+// Production: use relative paths (nginx proxies /api to backend)
+// Dev: set VITE_API_URL to point to backend directly
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
