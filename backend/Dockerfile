@@ -6,22 +6,23 @@ WORKDIR /app
 # Instalar dependencias de compilación para módulos nativos
 RUN apk add --no-cache python3 make g++
 
-# Copiar package files y crear directorios necesarios
+# Copiar package files para instalar dependencias
+COPY package*.json ./
+
+# Instalar dependencias (incluyendo devDependencies para build)
+RUN npm ci
+
+# Copiar código fuente y construir
 COPY . .
-
-# Instalar dependencias de producción (incluyendo headers para better-sqlite3)
-RUN npm ci --only=production || npm ci
-
-# Copiar código fuente
-COPY . .
-
-# Construir TypeScript
 RUN npm run build
 
 # Stage final
 FROM node:20-alpine
 
 WORKDIR /app
+
+# Instalar curl para healthcheck
+RUN apk add --no-cache curl
 
 # Instalar dependencias de producción
 COPY package*.json ./
