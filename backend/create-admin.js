@@ -39,6 +39,14 @@ async function main() {
 
   const db = new Database(dbPath);
 
+  // One-time bootstrap: solo crear si no existe ningún ADMIN
+  const existingAdmin = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'ADMIN'").get();
+  if (existingAdmin.count > 0) {
+    console.error("❌ Ya existe un administrador. Usa la API para crear más usuarios.");
+    console.error("   Para resetear, modifica la BD directamente.");
+    process.exit(1);
+  }
+
   const existing = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
   if (existing) {
     console.error(`❌ El usuario '${username}' ya existe`);
