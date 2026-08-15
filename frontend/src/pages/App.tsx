@@ -167,7 +167,7 @@ export default function App() {
           </AppShell.Header>
           <AppShell.Main>
             <Center style={{ minHeight: 'calc(100vh - 60px)', padding: '1rem' }}>
-              <Card shadow="sm" radius="lg" padding="md" withBorder style={{ width: '100%', maxWidth: 520 }}>
+              <Card shadow="sm" radius="lg" padding="md" withBorder className="flashcard" style={{ width: '100%' }}>
                 <Stack gap="md" align="center">
                   <SegmentedControl
                     data={[
@@ -181,31 +181,31 @@ export default function App() {
 
                   {mode === 'vocabulario' ? (
                     <>
-                      <Title order={2} ta="center">{word?.kanji ?? '...'}</Title>
-                      <Text c="dimmed" size="md">{word?.romaji}</Text>
+                      <Title order={2} ta="center" className="flashcard-word">{word?.kanji ?? '...'}</Title>
+                      <Text c="dimmed" className="flashcard-reading">{word?.romaji}</Text>
 
                       {showTranslation ? (
-                        <Text size="md" ta="center">{word?.translation}</Text>
+                        <Text ta="center" className="flashcard-translation">{word?.translation}</Text>
                       ) : (
-                        <Text size="md" ta="center" c="dimmed">Traducción oculta</Text>
+                        <Text ta="center" c="dimmed" className="flashcard-translation">Traducción oculta</Text>
                       )}
                     </>
                   ) : (
                     <>
-                      <Title order={2} ta="center">{kanji?.kanji ?? '...'}</Title>
+                      <Title order={2} ta="center" className="flashcard-word">{kanji?.kanji ?? '...'}</Title>
                       <Stack gap="xs" align="center">
                         {kanji?.onyomi && (
-                          <Text size="sm" c="dimmed">Onyomi: {kanji.onyomi}</Text>
+                          <Text c="dimmed" className="flashcard-label">Onyomi: {kanji.onyomi}</Text>
                         )}
                         {kanji?.kunyomi && (
-                          <Text size="sm" c="dimmed">Kunyomi: {kanji.kunyomi}</Text>
+                          <Text c="dimmed" className="flashcard-label">Kunyomi: {kanji.kunyomi}</Text>
                         )}
                       </Stack>
 
                       {showTranslation ? (
-                        <Text size="md" ta="center">{kanji?.translation}</Text>
+                        <Text ta="center" className="flashcard-translation">{kanji?.translation}</Text>
                       ) : (
-                        <Text size="md" ta="center" c="dimmed">Traducción oculta</Text>
+                        <Text ta="center" c="dimmed" className="flashcard-translation">Traducción oculta</Text>
                       )}
                     </>
                   )}

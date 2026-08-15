@@ -8,6 +8,8 @@ import { Notifications } from "@mantine/notifications";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { ColorSchemeToggle } from "./components/ColorSchemeToggle";
+import "./styles.css";
 import App from "./pages/App";
 import Admin from "./pages/Admin";
 import Chat from "./pages/Chat";
@@ -56,6 +58,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <MantineProvider defaultColorScheme="light">
         <Notifications position="top-right" />
         <RouterProvider router={router} />
+        <ColorSchemeToggle />
       </MantineProvider>
     </AuthProvider>
   </React.StrictMode>
