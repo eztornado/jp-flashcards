@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { AppShell, Button, Card, Center, Group, Stack, Text, Title, Burger, Drawer, ScrollArea, SegmentedControl } from '@mantine/core'
-import { IconEye, IconRefresh, IconVolume, IconMessageCircle, IconBrain, IconSettings } from '@tabler/icons-react'
+import { IconEye, IconRefresh, IconVolume, IconMessageCircle, IconBrain, IconSettings, IconBook2 } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 import { useDisclosure } from '@mantine/hooks'
 
@@ -103,6 +103,15 @@ export default function App() {
             </Button>
             <Button
               component={Link}
+              to="/lecciones"
+              leftSection={<IconBook2 size={16} />}
+              onClick={close}
+              fullWidth
+            >
+              Lecciones
+            </Button>
+            <Button
+              component={Link}
               to="/admin"
               leftSection={<IconSettings size={16} />}
               onClick={close}
@@ -131,6 +140,9 @@ export default function App() {
                 </Button>
                 <Button variant="subtle" component={Link} to="/chat" leftSection={<IconMessageCircle size={16} />}>
                   Chat
+                </Button>
+                <Button variant="subtle" component={Link} to="/lecciones" leftSection={<IconBook2 size={16} />}>
+                  Lecciones
                 </Button>
                 <Button variant="subtle" component={Link} to="/admin">Admin</Button>
               </Group>

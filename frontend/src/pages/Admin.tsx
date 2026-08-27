@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react'
-import { AppShell, Button, Card, Group, Modal, Stack, Table, TextInput, Title, Pagination, FileInput, Tabs } from '@mantine/core'
+import { AppShell, Button, Card, Group, Modal, Stack, Table, TextInput, Textarea, Text, Title, Pagination, FileInput, Tabs, Checkbox, Badge } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconPlus, IconTrash, IconUpload } from '@tabler/icons-react'
+import { IconPlus, IconTrash, IconUpload, IconPhotoScan, IconBook2, IconExternalLink } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 
 
 type Word = { id: number; kanji: string; romaji?: string; translation: string }
 type Kanji = { id: number; kanji: string; onyomi?: string; kunyomi?: string; translation: string }
+type Lesson = { id: number; title: string; description: string; created_at?: string; updated_at?: string }
+type OcrWordItem = { kanji: string; romaji: string; translation: string; include: boolean }
+const API = 'http://rpi2.netbird.vpn:3000'
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState<'vocabulario' | 'kanji'>('vocabulario')
+  const [activeTab, setActiveTab] = useState<'vocabulario' | 'kanji' | 'lecciones'>('vocabulario')
 
   // Estados para vocabulario
   const [words, setWords] = useState<Word[]>([])
@@ -35,6 +38,25 @@ export default function Admin() {
   const [importOpened, setImportOpened] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
+
+  // Estados para importación por OCR
+  const [ocrOpened, setOcrOpened] = useState(false)
+  const [ocrFile, setOcrFile] = useState<File | null>(null)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrItems, setOcrItems] = useState<OcrWordItem[]>([])
+  const [ocrSaving, setOcrSaving] = useState(false)
+  const [ocrStep, setOcrStep] = useState<'upload' | 'review'>('upload')
+
+  // Estados para lecciones
+  const [lessons, setLessons] = useState<Lesson[]>([])
+  const [lessonEditorOpened, setLessonEditorOpened] = useState(false)
+  const [editingLessonId, setEditingLessonId] = useState<number | null>(null)
+  const [lessonTitle, setLessonTitle] = useState('')
+  const [lessonDescription, setLessonDescription] = useState('')
+  const [lessonHtml, setLessonHtml] = useState('')
+  const [lessonFiles, setLessonFiles] = useState<File[]>([])
+  const [lessonGenerating, setLessonGenerating] = useState(false)
+  const [lessonSaving, setLessonSaving] = useState(false)
 
   // Funciones para vocabulario
   async function loadWords() {
@@ -181,6 +203,172 @@ export default function Admin() {
     }
   }
 
+  // Funciones para importación por OCR
+  async function handleOcrExtract() {
+    if (!ocrFile) return
+    setOcrLoading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', ocrFile)
+      const res = await fetch(`${API}/api/import/ocr`, { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        notifications.show({ color: 'red', title: 'Error en OCR', message: data?.error || 'Error desconocido' })
+        return
+      }
+      if (!data.items?.length) {
+        notifications.show({ color: 'yellow', title: 'Sin resultados', message: 'No se detectaron palabras en la imagen' })
+        return
+      }
+      setOcrItems(data.items.map((i: Omit<OcrWordItem, 'include'>) => ({ ...i, include: true })))
+      setOcrStep('review')
+      notifications.show({ color: 'teal', title: 'OCR completado', message: `${data.totalItems} palabras detectadas. Revísalas antes de guardar.` })
+    } catch (e: any) {
+      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo procesando la imagen' })
+    } finally {
+      setOcrLoading(false)
+    }
+  }
+
+  function updateOcrItem(index: number, field: keyof Omit<OcrWordItem, 'include'>, value: string) {
+    setOcrItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)))
+  }
+
+  async function saveOcrItems() {
+    const selected = ocrItems.filter((i) => i.include && i.kanji.trim() && i.translation.trim())
+    if (selected.length === 0) {
+      notifications.show({ color: 'yellow', title: 'Nada seleccionado', message: 'Selecciona al menos una palabra válida' })
+      return
+    }
+    setOcrSaving(true)
+    try {
+      const res = await fetch(`${API}/api/import/ocr/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: selected.map(({ kanji, romaji, translation }) => ({ kanji, romaji, translation }))
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        notifications.show({ color: 'red', title: 'Error al guardar', message: data?.error || 'Error desconocido' })
+        return
+      }
+      notifications.show({
+        color: 'teal',
+        title: 'Palabras guardadas',
+        message: `Insertadas: ${data.inserted} • Actualizadas: ${data.updated}`
+      })
+      resetOcrModal()
+      loadWords()
+    } catch (e: any) {
+      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo guardando las palabras' })
+    } finally {
+      setOcrSaving(false)
+    }
+  }
+
+  function resetOcrModal() {
+    setOcrOpened(false)
+    setOcrFile(null)
+    setOcrItems([])
+    setOcrStep('upload')
+  }
+
+  // Funciones para lecciones
+  async function loadLessons() {
+    const res = await fetch(`${API}/api/lessons`)
+    const data = await res.json()
+    setLessons(data)
+  }
+
+  useEffect(() => { loadLessons() }, [])
+
+  function openNewLesson() {
+    setEditingLessonId(null)
+    setLessonTitle('')
+    setLessonDescription('')
+    setLessonHtml('')
+    setLessonFiles([])
+    setLessonEditorOpened(true)
+  }
+
+  function openEditLesson(l: Lesson) {
+    fetch(`${API}/api/lessons/${l.id}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setEditingLessonId(l.id)
+        setLessonTitle(data.title)
+        setLessonDescription(data.description ?? '')
+        setLessonHtml(data.html)
+        setLessonFiles([])
+        setLessonEditorOpened(true)
+      })
+  }
+
+  async function generateLessonHtml() {
+    if (!lessonFiles || lessonFiles.length === 0) {
+      notifications.show({ color: 'yellow', title: 'Faltan capturas', message: 'Adjunta al menos una imagen o PDF de la lección' })
+      return
+    }
+    setLessonGenerating(true)
+    try {
+      const fd = new FormData()
+      for (const f of lessonFiles) fd.append('files', f)
+      const res = await fetch(`${API}/api/lessons/generate`, { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        notifications.show({ color: 'red', title: 'Error generando lección', message: data?.error || 'Error desconocido' })
+        return
+      }
+      setLessonHtml(data.html)
+      if (data.suggestedTitle && !lessonTitle.trim()) setLessonTitle(data.suggestedTitle)
+      notifications.show({ color: 'teal', title: 'Lección generada', message: 'Revisa y edita el contenido antes de guardar' })
+    } catch (e: any) {
+      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo generando la lección' })
+    } finally {
+      setLessonGenerating(false)
+    }
+  }
+
+  async function saveLesson() {
+    if (!lessonTitle.trim() || !lessonHtml.trim()) {
+      notifications.show({ color: 'yellow', title: 'Datos incompletos', message: 'La lección necesita título y contenido HTML' })
+      return
+    }
+    setLessonSaving(true)
+    try {
+      const method = editingLessonId ? 'PUT' : 'POST'
+      const url = editingLessonId ? `${API}/api/lessons/${editingLessonId}` : `${API}/api/lessons`
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: lessonTitle, description: lessonDescription, html: lessonHtml })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        notifications.show({ color: 'red', title: 'Error al guardar', message: JSON.stringify(data) })
+        return
+      }
+      notifications.show({ color: 'teal', title: 'Guardada', message: 'Lección guardada correctamente' })
+      setLessonEditorOpened(false)
+      loadLessons()
+    } catch (e: any) {
+      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo guardando la lección' })
+    } finally {
+      setLessonSaving(false)
+    }
+  }
+
+  async function removeLesson(id: number) {
+    if (!confirm('¿Eliminar esta lección?')) return
+    const res = await fetch(`${API}/api/lessons/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      notifications.show({ color: 'teal', title: 'Eliminada', message: 'Lección eliminada' })
+      loadLessons()
+    }
+  }
+
   // Función para limpiar BD
   async function clearDatabase(type: 'words' | 'kanji') {
     const confirmMsg = type === 'words'
@@ -230,6 +418,7 @@ export default function Admin() {
             <Tabs.List>
               <Tabs.Tab value="vocabulario">Vocabulario</Tabs.Tab>
               <Tabs.Tab value="kanji">Kanji</Tabs.Tab>
+              <Tabs.Tab value="lecciones" leftSection={<IconBook2 size={16} />}>Lecciones</Tabs.Tab>
             </Tabs.List>
 
             {/* Tab Vocabulario */}
@@ -243,6 +432,14 @@ export default function Admin() {
                     style={{ flex: 1 }}
                   />
                   <Group gap="xs">
+                    <Button
+                      leftSection={<IconPhotoScan size={16} />}
+                      variant="outline"
+                      color="grape"
+                      onClick={() => setOcrOpened(true)}
+                    >
+                      Importar con OCR
+                    </Button>
                     <Button
                       leftSection={<IconUpload size={16} />}
                       variant="outline"
@@ -360,6 +557,60 @@ export default function Admin() {
                 </Group>
               </Stack>
             </Tabs.Panel>
+
+            {/* Tab Lecciones */}
+            <Tabs.Panel value="lecciones" pt="md">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Text c="dimmed" size="sm">
+                    Lecciones explicativas generadas a partir de capturas (OCR + IA). Visibles públicamente en /lecciones
+                  </Text>
+                  <Button leftSection={<IconPlus size={16} />} onClick={openNewLesson}>
+                    Nueva lección
+                  </Button>
+                </Group>
+
+                {lessons.length === 0 ? (
+                  <Text c="dimmed" ta="center" py="xl">Todavía no hay lecciones creadas</Text>
+                ) : (
+                  <Table striped highlightOnHover withTableBorder withColumnBorders>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Título</Table.Th>
+                        <Table.Th>Descripción</Table.Th>
+                        <Table.Th>Actualizada</Table.Th>
+                        <Table.Th></Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {lessons.map((l) => (
+                        <Table.Tr key={l.id}>
+                          <Table.Td>{l.title}</Table.Td>
+                          <Table.Td>{l.description}</Table.Td>
+                          <Table.Td>{l.updated_at ? new Date(l.updated_at).toLocaleString('es-ES') : '-'}</Table.Td>
+                          <Table.Td width={220}>
+                            <Group gap="xs" justify="end">
+                              <Button
+                                size="xs"
+                                variant="light"
+                                color="blue"
+                                leftSection={<IconExternalLink size={14} />}
+                                component={Link}
+                                to={`/lecciones/${l.id}`}
+                              >
+                                Ver
+                              </Button>
+                              <Button size="xs" variant="light" onClick={() => openEditLesson(l)}>Editar</Button>
+                              <Button size="xs" color="red" leftSection={<IconTrash size={14} />} onClick={() => removeLesson(l.id)}>Borrar</Button>
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                )}
+              </Stack>
+            </Tabs.Panel>
           </Tabs>
         </Card>
 
@@ -420,6 +671,150 @@ export default function Admin() {
             />
             <Group justify="end">
               <Button onClick={saveKanji}>Guardar</Button>
+            </Group>
+          </Stack>
+        </Modal>
+
+        {/* Modal para importar con OCR */}
+        <Modal
+          opened={ocrOpened}
+          onClose={resetOcrModal}
+          title="Importar vocabulario con OCR"
+          centered
+          size={ocrStep === 'review' ? '80rem' : 'md'}
+        >
+          {ocrStep === 'upload' ? (
+            <Stack>
+              <FileInput
+                accept="image/*,application/pdf"
+                placeholder="Selecciona una imagen o PDF con la hoja de vocabulario"
+                value={ocrFile}
+                onChange={setOcrFile}
+                clearable
+              />
+              <Text size="xs" c="dimmed">
+                El texto se extraerá con el servicio OCR y se estructurará con IA. Podrás revisar las palabras antes de guardarlas.
+              </Text>
+              <Group justify="end">
+                <Button leftSection={<IconPhotoScan size={16} />} loading={ocrLoading} disabled={!ocrFile} onClick={handleOcrExtract}>
+                  Analizar imagen
+                </Button>
+              </Group>
+            </Stack>
+          ) : (
+            <Stack>
+              <Group justify="space-between">
+                <Badge color="grape">{ocrItems.length} palabras detectadas</Badge>
+                <Button variant="subtle" size="xs" onClick={() => { setOcrStep('upload'); setOcrItems([]) }}>
+                  Volver a elegir archivo
+                </Button>
+              </Group>
+              <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                <Table striped withTableBorder verticalSpacing="xs">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th w={50}></Table.Th>
+                      <Table.Th>Kanji</Table.Th>
+                      <Table.Th>Romaji</Table.Th>
+                      <Table.Th>Traducción</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {ocrItems.map((item, idx) => (
+                      <Table.Tr key={idx}>
+                        <Table.Td>
+                          <Checkbox checked={item.include} onChange={(e) => setOcrItems((prev) => prev.map((it, i) => (i === idx ? { ...it, include: e.currentTarget.checked } : it)))} />
+                        </Table.Td>
+                        <Table.Td><TextInput size="xs" value={item.kanji} onChange={(e) => updateOcrItem(idx, 'kanji', e.currentTarget.value)} /></Table.Td>
+                        <Table.Td><TextInput size="xs" value={item.romaji} onChange={(e) => updateOcrItem(idx, 'romaji', e.currentTarget.value)} /></Table.Td>
+                        <Table.Td><TextInput size="xs" value={item.translation} onChange={(e) => updateOcrItem(idx, 'translation', e.currentTarget.value)} /></Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </div>
+              <Group justify="end">
+                <Button loading={ocrSaving} disabled={ocrItems.filter((i) => i.include).length === 0} onClick={saveOcrItems}>
+                  Guardar seleccionadas
+                </Button>
+              </Group>
+            </Stack>
+          )}
+        </Modal>
+
+        {/* Modal editor de lecciones */}
+        <Modal
+          opened={lessonEditorOpened}
+          onClose={() => setLessonEditorOpened(false)}
+          title={editingLessonId ? 'Editar lección' : 'Nueva lección'}
+          centered
+          size="90rem"
+        >
+          <Stack gap="sm">
+            <Group grow align="start">
+              <TextInput
+                label="Título"
+                value={lessonTitle}
+                onChange={(e) => setLessonTitle(e.currentTarget.value)}
+                required
+              />
+              <TextInput
+                label="Descripción (opcional)"
+                value={lessonDescription}
+                onChange={(e) => setLessonDescription(e.currentTarget.value)}
+              />
+            </Group>
+
+            {!editingLessonId && (
+              <>
+                <FileInput
+                  label="Capturas de la lección (imágenes o PDFs)"
+                  placeholder="Selecciona una o varias capturas"
+                  multiple
+                  value={lessonFiles}
+                  onChange={setLessonFiles}
+                  clearable
+                />
+                <Group justify="space-between">
+                  <Text size="xs" c="dimmed">
+                    El contenido se extraerá por OCR y la IA generará una página explicativa completa. Revisa y edita el resultado antes de guardar.
+                  </Text>
+                  <Button
+                    leftSection={<IconPhotoScan size={16} />}
+                    loading={lessonGenerating}
+                    disabled={!lessonFiles || lessonFiles.length === 0}
+                    onClick={generateLessonHtml}
+                  >
+                    Generar contenido
+                  </Button>
+                </Group>
+              </>
+            )}
+
+            {lessonHtml && (
+              <>
+                <Textarea
+                  label="Contenido HTML (editable)"
+                  autosize
+                  minRows={10}
+                  maxRows={18}
+                  styles={{ input: { fontFamily: 'monospace', fontSize: 12 } }}
+                  value={lessonHtml}
+                  onChange={(e) => setLessonHtml(e.currentTarget.value)}
+                />
+                <iframe
+                  title="Previsualización"
+                  srcDoc={lessonHtml}
+                  style={{ width: '100%', height: 400, border: '1px solid #ddd', borderRadius: 8 }}
+                  sandbox=""
+                />
+              </>
+            )}
+
+            <Group justify="end">
+              <Button loading={lessonSaving} disabled={!lessonHtml.trim() || !lessonTitle.trim()} onClick={saveLesson}>
+                Guardar lección
+              </Button>
             </Group>
           </Stack>
         </Modal>

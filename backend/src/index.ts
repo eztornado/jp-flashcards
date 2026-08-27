@@ -99,6 +99,18 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 `);
 
+// Crear tabla para lecciones generadas desde capturas (OCR + Ollama)
+db.exec(`
+CREATE TABLE IF NOT EXISTS lessons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  html TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
 // Configuración de zAI GLM
 const ZAI_API_KEY = process.env.ZAI_API_KEY || "";
 const ZAI_MODEL = process.env.ZAI_MODEL || "glm-4-flash";
@@ -107,6 +119,9 @@ const ZAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 // Configuración de Ollama Local
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1";
+// Configuración del microservicio OCR (reigreengroup)
+const OCR_BASE_URL = (process.env.OCR_BASE_URL || "https://ocr.reigreengroup.com").replace(/\/$/, "");
+const OCR_API_KEY = process.env.OCR_API_KEY || "";
 const OLLAMA_CHAT_URL = OLLAMA_HOST
   ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/chat`
   : "";
@@ -117,6 +132,7 @@ async function callLLM(
   model: string,
   apiKey?: string,
   baseUrls?: any,
+  extraOptions?: { temperature?: number; num_ctx?: number; max_tokens?: number },
 ): Promise<string> {
   try {
     // Verificar si estamos usando Ollama
@@ -140,8 +156,9 @@ async function callLLM(
           messages: ollamaMessages,
           stream: false,
           options: {
-            temperature: 0.7,
+            temperature: extraOptions?.temperature ?? 0.7,
             top_p: 0.9,
+            ...(extraOptions?.num_ctx ? { num_ctx: extraOptions.num_ctx } : {}),
           },
         },
         {
@@ -167,8 +184,8 @@ async function callLLM(
         {
           model: model,
           messages: messages,
-          temperature: 0.7,
-          max_tokens: 500,
+          temperature: extraOptions?.temperature ?? 0.7,
+          max_tokens: extraOptions?.max_tokens ?? 500,
           stream: false,
         },
         {
@@ -201,6 +218,73 @@ async function callLLM(
         `Error al comunicarse con el modelo de IA (${isOllama ? "Ollama" : "zAI"})`
     );
   }
+}
+
+// Función auxiliar para llamar al microservicio OCR de Reigreengroup.
+// Recibe el buffer del archivo (imagen o PDF) y devuelve el texto extraído (ocr_result).
+async function callOCR(fileBuffer: Buffer, docType: string = "general"): Promise<string> {
+  if (!OCR_API_KEY) throw new Error("El servicio OCR no está configurado (falta OCR_API_KEY)");
+
+  const response = await axios.post(
+    `${OCR_BASE_URL}/ocr`,
+    {
+      file: fileBuffer.toString("base64"),
+      doc_type: docType,
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": OCR_API_KEY,
+      },
+      timeout: 600_000, // el OCR con LLM puede tardar varios minutos
+      maxBodyLength: Infinity,
+    }
+  );
+
+  const ocrResult = response.data?.ocr_result;
+  if (!ocrResult || typeof ocrResult !== "string") {
+    console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data));
+    throw new Error("El servicio OCR devolvió una respuesta inesperada");
+  }
+  return ocrResult;
+}
+
+// Extrae el primer bloque JSON válido del texto de respuesta del modelo
+// (soporta ```json ... ```, texto antes/después, etc.)
+function extractJson<T>(text: string): T {
+  // Quitar fences de código
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {}
+
+  // Buscar primer array u objeto balanceado
+  for (const [open, close] of [
+    ["[", "]"],
+    ["{", "}"],
+  ] as const) {
+    const start = cleaned.indexOf(open);
+    if (start === -1) continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (escaped) { escaped = false; continue; }
+      if (ch === "\\") { escaped = true; continue; }
+      if (ch === '"') inString = !inString;
+      if (inString) continue;
+      if (ch === open) depth++;
+      else if (ch === close) {
+        depth--;
+        if (depth === 0) {
+          const candidate = cleaned.slice(start, i + 1);
+          return JSON.parse(candidate) as T;
+        }
+      }
+    }
+  }
+  throw new Error("No se pudo extraer JSON válido de la respuesta del modelo");
 }
 
 // Función helper para llamar a zAI GLM (mantenida para compatibilidad)
@@ -697,6 +781,121 @@ app.post("/api/import", upload.single("file"), (req, res) => {
   }
 });
 
+// ============ IMPORT POR OCR (microservicio OCR + Ollama) ============
+
+// POST /api/import/ocr (multipart/form-data, campo "file": imagen o PDF)
+// Extrae el texto de la imagen vía OCR y lo estructuriza en palabras
+// compatibles con la tabla `words`. NO inserta nada: devuelve los items
+// para que el admin los revise antes de guardar.
+app.post("/api/import/ocr", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Falta el archivo 'file'" });
+    }
+    const isImage = req.file.mimetype?.startsWith("image/");
+    if (!isImage && req.file.mimetype !== "application/pdf") {
+      return res.status(400).json({ error: "El archivo debe ser una imagen o un PDF" });
+    }
+
+    const docType = (req.body?.doc_type as string) || "vocabulario_japones";
+    console.log(`[OCR Import] Procesando ${req.file.originalname} (${req.file.mimetype}, doc_type=${docType})`);
+
+    // 1) Extracción de texto con el microservicio OCR
+    const ocrText = await callOCR(req.file.buffer, docType);
+
+    // 2) Estructurización con el modelo de texto de Ollama
+    const structured = await callLLM(
+      [
+        {
+          role: "system",
+          content:
+            "Eres un asistente experto en japonés y en procesar texto extraído por OCR de libros/hojas de vocabulario. " +
+            "Recibirás texto crudo extraído por OCR de una hoja de vocabulario japonés-español. " +
+            "Tu tarea es devolver UNICAMENTE un array JSON válido (sin markdown, sin explicaciones) con todas las palabras detectadas, " +
+            "con este formato exacto por elemento: {\"kanji\": \"...\", \"romaji\": \"...\", \"translation\": \"...\"}. " +
+            "Reglas: 'kanji' es la palabra japonesa tal como aparece (kanji/kana); 'romaji' es su lectura en rōmaji " +
+            "(si el texto muestra hiragana o furigana, conviértela a rōmaji estilo Hepburn sin macrones); " +
+            "'translation' es la traducción al español (si el material está en otro idioma, tradúcelo al español). " +
+            "Ignora encabezados, números de página, símbolos decorativos y basura de OCR. " +
+            "Si una fila está ilegible u omítela. No inventes palabras que no estén en el texto.",
+        },
+        {
+          role: "user",
+          content: `Texto extraído por OCR:\n\n${ocrText}`,
+        },
+      ],
+      OLLAMA_MODEL,
+      undefined,
+      { zAI: ZAI_BASE_URL }
+    );
+
+    let items: Array<{ kanji: string; romaji: string; translation: string }> = [];
+    try {
+      items = extractJson<Array<{ kanji?: string; romaji?: string; translation?: string }>>(structured)
+        .filter((i) => i && typeof i.kanji === "string" && typeof i.translation === "string" && i.kanji.trim() && i.translation.trim())
+        .map((i) => ({
+          kanji: i.kanji!.trim(),
+          romaji: (i.romaji ?? "").trim(),
+          translation: i.translation!.trim(),
+        }));
+    } catch (e: any) {
+      console.error("[OCR Import] Error parseando JSON:", e?.message, "\nRespuesta:", structured);
+      return res.status(502).json({
+        error: "No se pudo estructurar el texto extraído",
+        details: e?.message,
+        ocrText,
+      });
+    }
+
+    res.json({
+      totalItems: items.length,
+      items,
+      ocrTextPreview: ocrText.slice(0, 2000),
+    });
+  } catch (err: any) {
+    console.error("[OCR Import] Error:", err?.response?.data || err?.message);
+    return res.status(500).json({
+      error: err?.message || "Error procesando la imagen con OCR",
+    });
+  }
+});
+
+// POST /api/import/ocr/save  Body: { items: [{kanji, romaji, translation}] }
+// Guarda las palabras revisadas en la BD (upsert sobre kanji+romaji)
+const OcrSaveBody = z.object({
+  items: z.array(
+    z.object({
+      kanji: z.string().min(1),
+      romaji: z.string().optional().default(""),
+      translation: z.string().min(1),
+    })
+  ).min(1),
+});
+
+app.post("/api/import/ocr/save", (req, res) => {
+  const parsed = OcrSaveBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const insertStmt = db.prepare(
+    `INSERT INTO words (kanji, romaji, translation) VALUES (?, ?, ?)
+     ON CONFLICT(kanji, romaji) DO UPDATE SET translation=excluded.translation`
+  );
+
+  let inserted = 0,
+    updated = 0;
+  const tx = db.transaction((items: any[]) => {
+    for (const item of items) {
+      const info = insertStmt.run(item.kanji, item.romaji ?? "", item.translation);
+      if (info.changes === 1) inserted++;
+      else updated++;
+    }
+  });
+
+  tx(parsed.data.items);
+
+  res.json({ inserted, updated, total: parsed.data.items.length });
+});
+
 // DELETE /api/words  -> elimina TODAS las filas
 app.delete("/api/words", (req, res) => {
   // borra todo
@@ -711,6 +910,165 @@ app.delete("/api/words", (req, res) => {
   } catch {}
 
   res.json({ deleted: info.changes });
+});
+
+// ============ LECCIONES (capturas -> páginas HTML) ============
+
+const LessonCreate = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(1000).optional().default(""),
+  html: z.string().min(1),
+});
+const LessonUpdate = LessonCreate;
+
+function rowToLesson(row: any, includeHtml = true) {
+  const base = {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? "",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+  return includeHtml ? { ...base, html: row.html } : base;
+}
+
+// GET /api/lessons - listado de lecciones (sin el HTML pesado)
+app.get("/api/lessons", (req, res) => {
+  const rows = db
+    .prepare("SELECT id, title, description, created_at, updated_at FROM lessons ORDER BY id DESC")
+    .all();
+  res.json(rows.map((r) => rowToLesson(r, false)));
+});
+
+// GET /api/lessons/:id - lección completa
+app.get("/api/lessons/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+  const row = db.prepare("SELECT * FROM lessons WHERE id = ?").get(id);
+  if (!row) return res.status(404).json({ error: "Not found" });
+  res.json(rowToLesson(row));
+});
+
+// POST /api/lessons - crear lección (html revisado/editado en el admin)
+app.post("/api/lessons", (req, res) => {
+  const parsed = LessonCreate.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { title, description, html } = parsed.data;
+  const info = db
+    .prepare("INSERT INTO lessons (title, description, html) VALUES (?, ?, ?)")
+    .run(title, description ?? "", html);
+  const row = db.prepare("SELECT * FROM lessons WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json(rowToLesson(row));
+});
+
+// PUT /api/lessons/:id
+app.put("/api/lessons/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+  const parsed = LessonUpdate.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { title, description, html } = parsed.data;
+  const info = db
+    .prepare(
+      "UPDATE lessons SET title=?, description=?, html=?, updated_at=CURRENT_TIMESTAMP WHERE id=?"
+    )
+    .run(title, description ?? "", html, id);
+  if (info.changes === 0) return res.status(404).json({ error: "Not found" });
+  const row = db.prepare("SELECT * FROM lessons WHERE id = ?").get(id);
+  res.json(rowToLesson(row));
+});
+
+// DELETE /api/lessons/:id
+app.delete("/api/lessons/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+  const info = db.prepare("DELETE FROM lessons WHERE id=?").run(id);
+  if (info.changes === 0) return res.status(404).json({ error: "Not found" });
+  res.json({ ok: true });
+});
+
+// POST /api/lessons/generate (multipart/form-data, campo "files": imágenes o PDFs)
+// Procesa las capturas con OCR y genera una página explicativa HTML completa.
+// NO guarda nada: devuelve el HTML para previsualizar/editar antes de crear la lección.
+app.post("/api/lessons/generate", upload.array("files"), async (req, res) => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: "Falta al menos un archivo en 'files'" });
+    }
+    for (const f of files) {
+      const okType = f.mimetype?.startsWith("image/") || f.mimetype === "application/pdf";
+      if (!okType) {
+        return res.status(400).json({ error: `Archivo no soportado: ${f.originalname} (${f.mimetype})` });
+      }
+    }
+
+    // 1) OCR secuencial de cada captura
+    const sections: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      console.log(`[Lesson Generate] OCR ${i + 1}/${files.length}: ${files[i].originalname}`);
+      const text = await callOCR(files[i].buffer, "leccion_japones");
+      sections.push(`--- CAPTURA ${i + 1} (${files[i].originalname}) ---\n${text}`);
+    }
+    const ocrText = sections.join("\n\n");
+
+    // 2) Generación de la página explicativa completa
+    const lessonPrompt =
+      "Eres un profesor de japonés experto en crear material didáctico. " +
+      "Recibirás el texto extraído por OCR de una o varias capturas de una lección de japonés (de una escuela o manual). " +
+      "Tu tarea es convertir ese contenido en una PÁGINA EXPLICATIVA COMPLETA en HTML para que el estudiante la consulte siempre.\n\n" +
+      "Requisitos del HTML:\n" +
+      "- Devuelve UNICAMENTE código HTML completo, empezando por <!DOCTYPE html> y terminando con </html>. Sin markdown ni explicaciones.\n" +
+      "- Incluye un <style> interno con diseño limpio, moderno y responsive (fuentes legibles, colores suaves, espaciados generosos, tablas y listas bien estilizadas).\n" +
+      "- Estructura: título de la lección (<h1>), índice de contenidos si hay varias secciones, explicaciones claras de gramática y vocabulario, " +
+      "tablas de vocabulario (japonés, lectura en rōmaji, español), ejemplos de uso con frases de ejemplo, y puntos clave destacados.\n" +
+      "- Todo el contenido textual explicativo debe estar EN ESPAÑOL; conserva en japonés (con rōmaji entre paréntesis) las palabras, frases y ejemplos.\n" +
+      "- Corrige errores evidentes del OCR usando contexto de japonés, pero NO inventes contenido que contradiga la fuente. Si algo es ilegible, indícalo sutilmente.\n" +
+      "- Añade una sección final de repaso/resumen con los puntos más importantes de la lección.";
+
+    console.log("[Lesson Generate] Llamando al modelo para generar HTML...");
+    const html = await callLLM(
+      [
+        { role: "system", content: lessonPrompt },
+        { role: "user", content: `Texto extraído por OCR:\n\n${ocrText}` },
+      ],
+      OLLAMA_MODEL,
+      undefined,
+      { zAI: ZAI_BASE_URL },
+      { temperature: 0.4, num_ctx: 16384, max_tokens: 8000 }
+    );
+
+    // Limpiar posibles fences de código alrededor del HTML
+    const cleanHtml = html
+      .replace(/^\s*```(?:html)?\s*/i, "")
+      .replace(/\s*```\s*$/i, "")
+      .trim();
+
+    if (!cleanHtml.toLowerCase().includes("<html")) {
+      return res.status(502).json({
+        error: "El modelo no devolvió un documento HTML válido",
+        rawPreview: cleanHtml.slice(0, 1000),
+      });
+    }
+
+    // Extraer título del <h1> o <title> si existe
+    let suggestedTitle = "";
+    const h1Match = cleanHtml.match(/<h1[^>]*>(.*?)<\/h1>/is);
+    const titleMatch = cleanHtml.match(/<title[^>]*>(.*?)<\/title>/is);
+    const stripTags = (s: string) => s.replace(/<[^>]+>/g, "").trim();
+    suggestedTitle = (h1Match && stripTags(h1Match[1])) || (titleMatch && stripTags(titleMatch[1])) || "";
+
+    res.json({
+      html: cleanHtml,
+      suggestedTitle: suggestedTitle.slice(0, 200),
+      capturesProcessed: files.length,
+    });
+  } catch (err: any) {
+    console.error("[Lesson Generate] Error:", err?.response?.data || err?.message);
+    return res.status(500).json({
+      error: err?.message || "Error generando la lección",
+    });
+  }
 });
 
 // ============ CHAT ENDPOINTS ============

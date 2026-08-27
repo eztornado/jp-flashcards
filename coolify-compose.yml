@@ -16,6 +16,8 @@ services:
       # IA Configuration (Optional)
       - OLLAMA_HOST=${OLLAMA_HOST:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+      - OCR_BASE_URL=${OCR_BASE_URL:-https://ocr.reigreengroup.com}
+      - OCR_API_KEY=${OCR_API_KEY:-}
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-}
     volumes:
