@@ -23,12 +23,16 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Instalar curl para healthcheck
+RUN apk add --no-cache curl
+
 # Instalar dependencias de producción
 COPY package*.json ./
 RUN npm ci --only=production || npm ci
 
 # Copiar archivos construidos
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/create-admin.js ./create-admin.js
 
 # Crear directorio para datos
 RUN mkdir -p /app/data

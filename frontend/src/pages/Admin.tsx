@@ -3,6 +3,7 @@ import { AppShell, Button, Card, Group, Modal, Stack, Table, TextInput, Textarea
 import { notifications } from '@mantine/notifications'
 import { IconPlus, IconTrash, IconUpload, IconPhotoScan, IconBook2, IconExternalLink } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api'
 
 
 type Word = { id: number; kanji: string; romaji?: string; translation: string }
@@ -65,8 +66,7 @@ export default function Admin() {
       pageSize: String(wordsPageSize),
       search: wordsSearch
     })
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/words?' + params.toString())
-    const data = await res.json()
+    const { data } = await api.get('/api/words?' + params.toString())
     setWords(data.items)
     setWordsTotal(data.total)
   }
@@ -86,31 +86,28 @@ export default function Admin() {
   }
 
   async function saveWord() {
-    const method = editingWord ? 'PUT' : 'POST'
-    const url = editingWord
-      ? 'http://rpi2.netbird.vpn:3000/api/words/' + editingWord.id
-      : 'http://rpi2.netbird.vpn:3000/api/words'
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(wordForm)
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      notifications.show({ color: 'red', title: 'Error', message: JSON.stringify(err) })
-      return
+    try {
+      if (editingWord) {
+        await api.put('/api/words/' + editingWord.id, wordForm)
+      } else {
+        await api.post('/api/words', wordForm)
+      }
+      setWordModalOpened(false)
+      notifications.show({ color: 'teal', title: 'Guardado', message: 'Palabra guardada' })
+      loadWords()
+    } catch (err: any) {
+      notifications.show({ color: 'red', title: 'Error', message: err?.response?.data?.error || 'Error al guardar' })
     }
-    setWordModalOpened(false)
-    notifications.show({ color: 'teal', title: 'Guardado', message: 'Palabra guardada' })
-    loadWords()
   }
 
   async function removeWord(id: number) {
     if (!confirm('¿Eliminar esta palabra?')) return
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/words/' + id, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await api.delete('/api/words/' + id)
       notifications.show({ color: 'teal', title: 'Eliminada', message: 'Palabra eliminada' })
       loadWords()
+    } catch (err: any) {
+      notifications.show({ color: 'red', title: 'Error', message: 'No se pudo eliminar' })
     }
   }
 
@@ -121,8 +118,7 @@ export default function Admin() {
       pageSize: String(kanjiPageSize),
       search: kanjiSearch
     })
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/kanji?' + params.toString())
-    const data = await res.json()
+    const { data } = await api.get('/api/kanji?' + params.toString())
     setKanjis(data.items)
     setKanjiTotal(data.total)
   }
@@ -147,31 +143,28 @@ export default function Admin() {
   }
 
   async function saveKanji() {
-    const method = editingKanji ? 'PUT' : 'POST'
-    const url = editingKanji
-      ? 'http://rpi2.netbird.vpn:3000/api/kanji/' + editingKanji.id
-      : 'http://rpi2.netbird.vpn:3000/api/kanji'
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(kanjiForm)
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      notifications.show({ color: 'red', title: 'Error', message: JSON.stringify(err) })
-      return
+    try {
+      if (editingKanji) {
+        await api.put('/api/kanji/' + editingKanji.id, kanjiForm)
+      } else {
+        await api.post('/api/kanji', kanjiForm)
+      }
+      setKanjiModalOpened(false)
+      notifications.show({ color: 'teal', title: 'Guardado', message: 'Kanji guardado' })
+      loadKanjis()
+    } catch (err: any) {
+      notifications.show({ color: 'red', title: 'Error', message: err?.response?.data?.error || 'Error al guardar' })
     }
-    setKanjiModalOpened(false)
-    notifications.show({ color: 'teal', title: 'Guardado', message: 'Kanji guardado' })
-    loadKanjis()
   }
 
   async function removeKanji(id: number) {
     if (!confirm('¿Eliminar este kanji?')) return
-    const res = await fetch('http://rpi2.netbird.vpn:3000/api/kanji/' + id, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await api.delete('/api/kanji/' + id)
       notifications.show({ color: 'teal', title: 'Eliminado', message: 'Kanji eliminado' })
       loadKanjis()
+    } catch (err: any) {
+      notifications.show({ color: 'red', title: 'Error', message: 'No se pudo eliminar' })
     }
   }
 
@@ -182,22 +175,17 @@ export default function Admin() {
     try {
       const fd = new FormData()
       fd.append('file', importFile)
-      const res = await fetch('http://rpi2.netbird.vpn:3000/api/import', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) {
-        notifications.show({ color: 'red', title: 'Error al importar', message: data?.error || 'Error desconocido' })
-      } else {
-        notifications.show({
-          color: 'teal',
-          title: 'Importación completada',
-          message: `Hoja: ${data.sheet} • Filas: ${data.totalRows} • Insertadas: ${data.inserted} • Actualizadas: ${data.updated} • Omitidas: ${data.skipped}`
-        })
-        setImportOpened(false)
-        setImportFile(null)
-        loadWords()
-      }
+      const { data } = await api.post('/api/import', fd)
+      notifications.show({
+        color: 'teal',
+        title: 'Importación completada',
+        message: `Hoja: ${data.sheet} • Filas: ${data.totalRows} • Insertadas: ${data.inserted} • Actualizadas: ${data.updated} • Omitidas: ${data.skipped}`
+      })
+      setImportOpened(false)
+      setImportFile(null)
+      loadWords()
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo subiendo el archivo' })
+      notifications.show({ color: 'red', title: 'Error al importar', message: e?.response?.data?.error || 'Error desconocido' })
     } finally {
       setImporting(false)
     }
@@ -375,29 +363,24 @@ export default function Admin() {
       ? '⚠️ Esto eliminará TODAS las palabras de vocabulario. ¿Seguro que quieres continuar?'
       : '⚠️ Esto eliminará TODOS los kanji. ¿Seguro que quieres continuar?'
 
-    if (!confirm(confirmMsg)) return;
+    if (!confirm(confirmMsg)) return
 
     try {
-      const res = await fetch(`http://rpi2.netbird.vpn:3000/api/${type}`, { method: 'DELETE' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        notifications.show({ color: 'red', title: 'Error al limpiar', message: data?.error || 'Error desconocido' });
-        return;
-      }
+      const { data } = await api.delete(`/api/${type}`)
       notifications.show({
         color: 'teal',
         title: 'Base de datos limpiada',
         message: `Se eliminaron ${data.deleted ?? 0} registros`
-      });
+      })
       if (type === 'words') {
-        setWordsPage(1);
-        loadWords();
+        setWordsPage(1)
+        loadWords()
       } else {
-        setKanjiPage(1);
-        loadKanjis();
+        setKanjiPage(1)
+        loadKanjis()
       }
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'No se pudo limpiar la BD' });
+      notifications.show({ color: 'red', title: 'Error', message: e?.response?.data?.error || 'No se pudo limpiar la BD' })
     }
   }
 

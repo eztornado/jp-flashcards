@@ -8,6 +8,8 @@ import multer, { FileFilterCallback } from "multer";
 import * as XLSX from "xlsx";
 import axios from "axios";
 import dotenv from "dotenv";
+import { authMiddleware, requireRole } from "./auth/middleware.js";
+import { createAuthRoutes } from "./auth/routes.js";
 
 // Extender tipos de Express para multer
 declare global {
@@ -109,6 +111,22 @@ CREATE TABLE IF NOT EXISTS lessons (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+`);
+
+// Crear tabla para usuarios
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('USER', 'ADMIN')),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+db.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
+ON users(username);
 `);
 
 // Configuración de zAI GLM
@@ -295,6 +313,17 @@ async function callZAIGLM(messages: any[]): Promise<string> {
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Auth middleware (must be after express.json and before routes)
+app.use(authMiddleware);
+
+// Healthcheck endpoint - siempre devuelve 200
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// Auth routes
+app.use("/api/auth", createAuthRoutes(db));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -511,7 +540,7 @@ app.delete("/api/kanji/:id", (req, res) => {
 });
 
 // DELETE /api/kanji  -> elimina TODOS los kanji
-app.delete("/api/kanji", (req, res) => {
+app.delete("/api/kanji", requireRole('ADMIN'), (req, res) => {
   const info = db.prepare("DELETE FROM kanji").run();
   try {
     db.exec("DELETE FROM sqlite_sequence WHERE name='kanji'");
@@ -689,7 +718,7 @@ app.get("/api/quiz/stats", (req, res) => {
 });
 
 // POST /api/import (multipart/form-data)  field: file (xlsx)
-app.post("/api/import", upload.single("file"), (req, res) => {
+app.post("/api/import", upload.single("file"), requireRole('ADMIN'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Falta el archivo 'file' (.xlsx)" });
@@ -787,7 +816,7 @@ app.post("/api/import", upload.single("file"), (req, res) => {
 // Extrae el texto de la imagen vía OCR y lo estructuriza en palabras
 // compatibles con la tabla `words`. NO inserta nada: devuelve los items
 // para que el admin los revise antes de guardar.
-app.post("/api/import/ocr", upload.single("file"), async (req, res) => {
+app.post("/api/import/ocr", upload.single("file"), requireRole("ADMIN"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Falta el archivo 'file'" });
@@ -872,7 +901,7 @@ const OcrSaveBody = z.object({
   ).min(1),
 });
 
-app.post("/api/import/ocr/save", (req, res) => {
+app.post("/api/import/ocr/save", requireRole("ADMIN"), (req, res) => {
   const parsed = OcrSaveBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -897,7 +926,7 @@ app.post("/api/import/ocr/save", (req, res) => {
 });
 
 // DELETE /api/words  -> elimina TODAS las filas
-app.delete("/api/words", (req, res) => {
+app.delete("/api/words", requireRole('ADMIN'), (req, res) => {
   // borra todo
   const info = db.prepare("DELETE FROM words").run();
   // opcional: resetea autoincrement
@@ -950,7 +979,7 @@ app.get("/api/lessons/:id", (req, res) => {
 });
 
 // POST /api/lessons - crear lección (html revisado/editado en el admin)
-app.post("/api/lessons", (req, res) => {
+app.post("/api/lessons", requireRole("ADMIN"), (req, res) => {
   const parsed = LessonCreate.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { title, description, html } = parsed.data;
@@ -962,7 +991,7 @@ app.post("/api/lessons", (req, res) => {
 });
 
 // PUT /api/lessons/:id
-app.put("/api/lessons/:id", (req, res) => {
+app.put("/api/lessons/:id", requireRole("ADMIN"), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
   const parsed = LessonUpdate.safeParse(req.body);
@@ -979,7 +1008,7 @@ app.put("/api/lessons/:id", (req, res) => {
 });
 
 // DELETE /api/lessons/:id
-app.delete("/api/lessons/:id", (req, res) => {
+app.delete("/api/lessons/:id", requireRole("ADMIN"), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
   const info = db.prepare("DELETE FROM lessons WHERE id=?").run(id);
@@ -990,7 +1019,7 @@ app.delete("/api/lessons/:id", (req, res) => {
 // POST /api/lessons/generate (multipart/form-data, campo "files": imágenes o PDFs)
 // Procesa las capturas con OCR y genera una página explicativa HTML completa.
 // NO guarda nada: devuelve el HTML para previsualizar/editar antes de crear la lección.
-app.post("/api/lessons/generate", upload.array("files"), async (req, res) => {
+app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), async (req, res) => {
   try {
     const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) {
