@@ -10,7 +10,6 @@ type Word = { id: number; kanji: string; romaji?: string; translation: string }
 type Kanji = { id: number; kanji: string; onyomi?: string; kunyomi?: string; translation: string }
 type Lesson = { id: number; title: string; description: string; created_at?: string; updated_at?: string }
 type OcrWordItem = { kanji: string; romaji: string; translation: string; include: boolean }
-const API = 'http://rpi2.netbird.vpn:3000'
 
 export default function Admin() {
   const [activeTab, setActiveTab] = useState<'vocabulario' | 'kanji' | 'lecciones'>('vocabulario')
@@ -198,12 +197,7 @@ export default function Admin() {
     try {
       const fd = new FormData()
       fd.append('file', ocrFile)
-      const res = await fetch(`${API}/api/import/ocr`, { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) {
-        notifications.show({ color: 'red', title: 'Error en OCR', message: data?.error || 'Error desconocido' })
-        return
-      }
+      const { data } = await api.post('/api/import/ocr', fd)
       if (!data.items?.length) {
         notifications.show({ color: 'yellow', title: 'Sin resultados', message: 'No se detectaron palabras en la imagen' })
         return
@@ -212,7 +206,7 @@ export default function Admin() {
       setOcrStep('review')
       notifications.show({ color: 'teal', title: 'OCR completado', message: `${data.totalItems} palabras detectadas. Revísalas antes de guardar.` })
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo procesando la imagen' })
+      notifications.show({ color: 'red', title: 'Error en OCR', message: e?.response?.data?.error || e?.message || 'Fallo procesando la imagen' })
     } finally {
       setOcrLoading(false)
     }
@@ -230,18 +224,9 @@ export default function Admin() {
     }
     setOcrSaving(true)
     try {
-      const res = await fetch(`${API}/api/import/ocr/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: selected.map(({ kanji, romaji, translation }) => ({ kanji, romaji, translation }))
-        })
+      const { data } = await api.post('/api/import/ocr/save', {
+        items: selected.map(({ kanji, romaji, translation }) => ({ kanji, romaji, translation }))
       })
-      const data = await res.json()
-      if (!res.ok) {
-        notifications.show({ color: 'red', title: 'Error al guardar', message: data?.error || 'Error desconocido' })
-        return
-      }
       notifications.show({
         color: 'teal',
         title: 'Palabras guardadas',
@@ -265,8 +250,7 @@ export default function Admin() {
 
   // Funciones para lecciones
   async function loadLessons() {
-    const res = await fetch(`${API}/api/lessons`)
-    const data = await res.json()
+    const { data } = await api.get('/api/lessons')
     setLessons(data)
   }
 
@@ -282,9 +266,8 @@ export default function Admin() {
   }
 
   function openEditLesson(l: Lesson) {
-    fetch(`${API}/api/lessons/${l.id}`)
-      .then((r) => r.json())
-      .then((data) => {
+    api.get(`/api/lessons/${l.id}`)
+      .then(({ data }) => {
         setEditingLessonId(l.id)
         setLessonTitle(data.title)
         setLessonDescription(data.description ?? '')
@@ -303,17 +286,12 @@ export default function Admin() {
     try {
       const fd = new FormData()
       for (const f of lessonFiles) fd.append('files', f)
-      const res = await fetch(`${API}/api/lessons/generate`, { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) {
-        notifications.show({ color: 'red', title: 'Error generando lección', message: data?.error || 'Error desconocido' })
-        return
-      }
+      const { data } = await api.post('/api/lessons/generate', fd)
       setLessonHtml(data.html)
       if (data.suggestedTitle && !lessonTitle.trim()) setLessonTitle(data.suggestedTitle)
       notifications.show({ color: 'teal', title: 'Lección generada', message: 'Revisa y edita el contenido antes de guardar' })
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo generando la lección' })
+      notifications.show({ color: 'red', title: 'Error generando lección', message: e?.response?.data?.error || e?.message || 'Fallo generando la lección' })
     } finally {
       setLessonGenerating(false)
     }
@@ -326,17 +304,11 @@ export default function Admin() {
     }
     setLessonSaving(true)
     try {
-      const method = editingLessonId ? 'PUT' : 'POST'
-      const url = editingLessonId ? `${API}/api/lessons/${editingLessonId}` : `${API}/api/lessons`
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: lessonTitle, description: lessonDescription, html: lessonHtml })
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        notifications.show({ color: 'red', title: 'Error al guardar', message: JSON.stringify(data) })
-        return
+      const payload = { title: lessonTitle, description: lessonDescription, html: lessonHtml }
+      if (editingLessonId) {
+        await api.put(`/api/lessons/${editingLessonId}`, payload)
+      } else {
+        await api.post('/api/lessons', payload)
       }
       notifications.show({ color: 'teal', title: 'Guardada', message: 'Lección guardada correctamente' })
       setLessonEditorOpened(false)
@@ -350,10 +322,12 @@ export default function Admin() {
 
   async function removeLesson(id: number) {
     if (!confirm('¿Eliminar esta lección?')) return
-    const res = await fetch(`${API}/api/lessons/${id}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await api.delete(`/api/lessons/${id}`)
       notifications.show({ color: 'teal', title: 'Eliminada', message: 'Lección eliminada' })
       loadLessons()
+    } catch (e: any) {
+      notifications.show({ color: 'red', title: 'Error', message: e?.response?.data?.error || 'No se pudo eliminar la lección' })
     }
   }
 
@@ -397,7 +371,7 @@ export default function Admin() {
 
       <AppShell.Main>
         <Card withBorder radius="md" p="md" m="md">
-          <Tabs value={activeTab} onChange={(v) => setActiveTab(v as 'vocabulario' | 'kanji')}>
+          <Tabs value={activeTab} onChange={(v) => setActiveTab(v as 'vocabulario' | 'kanji' | 'lecciones')}>
             <Tabs.List>
               <Tabs.Tab value="vocabulario">Vocabulario</Tabs.Tab>
               <Tabs.Tab value="kanji">Kanji</Tabs.Tab>

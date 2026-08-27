@@ -2,18 +2,17 @@ import React, { useEffect, useState } from 'react'
 import { AppShell, Button, Card, Grid, Group, Stack, Text, Title, Badge } from '@mantine/core'
 import { IconBook2 } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api'
 
 type Lesson = { id: number; title: string; description: string; created_at?: string; updated_at?: string }
-const API = 'http://rpi2.netbird.vpn:3000'
 
 export default function Lessons() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${API}/api/lessons`)
-      .then((r) => r.json())
-      .then(setLessons)
+    api.get('/api/lessons')
+      .then(({ data }) => setLessons(data))
       .catch(() => setLessons([]))
       .finally(() => setLoading(false))
   }, [])

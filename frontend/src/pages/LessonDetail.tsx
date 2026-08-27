@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { AppShell, Button, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { Link, useParams } from 'react-router-dom'
+import { api } from '../lib/api'
 
 type Lesson = { id: number; title: string; description: string; html: string }
-const API = 'http://rpi2.netbird.vpn:3000'
 
 export default function LessonDetail() {
   const { id } = useParams()
@@ -12,13 +12,9 @@ export default function LessonDetail() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetch(`${API}/api/lessons/${id}`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error('Lección no encontrada')
-        return r.json()
-      })
-      .then(setLesson)
-      .catch((e) => setError(e.message))
+    api.get(`/api/lessons/${id}`)
+      .then(({ data }) => setLesson(data))
+      .catch((e) => setError(e?.response?.status === 404 ? 'Lección no encontrada' : 'Error cargando la lección'))
       .finally(() => setLoading(false))
   }, [id])
 
