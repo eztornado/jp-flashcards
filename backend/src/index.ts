@@ -137,12 +137,45 @@ const ZAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 // Configuración de Ollama Local
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1";
+// Configuración de llama.cpp (servidor OpenAI-compatible)
+// Tiene prioridad sobre Ollama si está configurado
+const LLAMACPP_HOST = (process.env.LLAMACPP_HOST || "").replace(/\/$/, "");
+const LLAMACPP_MODEL = process.env.LLAMACPP_MODEL || "gemma4:12b";
 // Configuración del microservicio OCR (reigreengroup)
 const OCR_BASE_URL = (process.env.OCR_BASE_URL || "https://ocr.reigreengroup.com").replace(/\/$/, "");
 const OCR_API_KEY = process.env.OCR_API_KEY || "";
 const OLLAMA_CHAT_URL = OLLAMA_HOST
   ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/chat`
   : "";
+
+// Resuelve el identificador real del modelo en el servidor llama.cpp.
+// El modelo puede estar cargado con un id tipo ruta ("/root/llama-models/gemma-4-...gguf"),
+// así que consultamos /v1/models y buscamos el que coincida con LLAMACPP_MODEL
+// por substring (ej: "gemma4:12b" -> gemma-4-12b...). Cacheamos el resultado.
+let llamacppModelIdCache: string | null = null;
+async function resolveLlamacppModel(): Promise<string> {
+  if (llamacppModelIdCache) return llamacppModelIdCache;
+  try {
+    const r = await axios.get(`${LLAMACPP_HOST}/v1/models`, { timeout: 10_000 });
+    const ids: string[] = (r.data?.data ?? r.data?.models ?? [])
+      .map((m: any) => m.id || m.model || m.name)
+      .filter((id: any) => typeof id === "string" && id.length > 0);
+    const wanted = LLAMACPP_MODEL.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const found =
+      ids.find((id) => {
+        const norm = id.toLowerCase().replace(/[^a-z0-9]/g, "");
+        return norm.includes(wanted) || wanted.includes(norm);
+      }) || ids[0];
+    if (found) {
+      console.log(`[llama.cpp] Modelo resuelto: ${found} (buscado: ${LLAMACPP_MODEL})`);
+      llamacppModelIdCache = found;
+      return found;
+    }
+  } catch (e: any) {
+    console.warn("[llama.cpp] No se pudo listar modelos:", e?.message);
+  }
+  return LLAMACPP_MODEL;
+}
 
 // Función auxiliar para llamar al modelo de IA (soporta zAI y Ollama)
 async function callLLM(
@@ -153,8 +186,46 @@ async function callLLM(
   extraOptions?: { temperature?: number; num_ctx?: number; max_tokens?: number },
 ): Promise<string> {
   try {
-    // Verificar si estamos usando Ollama
-    const isOllama = !!OLLAMA_HOST;
+    // Verificar qué proveedor usar: llama.cpp > Ollama > zAI
+    const isLlamacpp = !!LLAMACPP_HOST;
+    const isOllama = !isLlamacpp && !!OLLAMA_HOST;
+
+    if (isLlamacpp) {
+      // Llamada a llama.cpp usando la API OpenAI-compatible /v1/chat/completions
+      const llamacppModel = await resolveLlamacppModel();
+      console.log("[llama.cpp Request] URL:", `${LLAMACPP_HOST}/v1/chat/completions`);
+      console.log("[llama.cpp Request] Model:", llamacppModel);
+
+      const response = await axios.post(
+        `${LLAMACPP_HOST}/v1/chat/completions`,
+        {
+          model: llamacppModel,
+          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          stream: false,
+          temperature: extraOptions?.temperature ?? 0.7,
+          max_tokens: extraOptions?.max_tokens ?? 2048,
+        },
+        {
+          headers: { "Content-Type": "application/json" },
+          timeout: 600_000,
+          maxBodyLength: Infinity,
+        }
+      );
+
+      console.log("[llama.cpp Response] Status:", response.status);
+
+      // Los modelos "thinking" (como gemma4) pueden devolver el texto en
+      // reasoning_content si agotan los tokens antes de emitir content
+      const reply =
+        response.data.choices?.[0]?.message?.content ||
+        response.data.choices?.[0]?.message?.reasoning_content ||
+        "";
+      if (!reply) {
+        console.error("[llama.cpp Error] Empty response, full data:", JSON.stringify(response.data).slice(0, 1000));
+        throw new Error("llama.cpp devolvió una respuesta vacía");
+      }
+      return reply;
+    }
 
     if (isOllama) {
       // Llamada a Ollama usando /api/chat
@@ -1104,15 +1175,15 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
 
 // GET /api/chat/test - Verificar que el modelo de IA está configurado correctamente
 app.get("/api/chat/test", async (req, res) => {
-  // Intentar detectar si Ollama está configurado
-  const isOllamaConfigured = !!OLLAMA_HOST;
-  const ollamaUrl = OLLAMA_HOST || "";
+  // Detectar proveedor configurado (prioridad: llama.cpp > Ollama > zAI)
+  const provider = LLAMACPP_HOST ? "llama.cpp" : OLLAMA_HOST ? "Ollama" : ZAI_API_KEY ? "zAI" : null;
+  const localModel = LLAMACPP_HOST ? await resolveLlamacppModel() : OLLAMA_MODEL;
 
-  if (!isOllamaConfigured && !ZAI_API_KEY) {
+  if (!provider) {
     return res.status(500).json({
       configured: false,
       error: "Ningún modelo de IA está configurado",
-      help: "Configura ZAI_API_KEY para usar zAI, o OLLAMA_HOST para usar Ollama local.",
+      help: "Configura LLAMACPP_HOST (llama.cpp), OLLAMA_HOST (Ollama) o ZAI_API_KEY (zAI).",
     });
   }
 
@@ -1123,8 +1194,8 @@ app.get("/api/chat/test", async (req, res) => {
     // Llamar al modelo de IA (función unificada)
     const testResponse = await callLLM(
       testMessages,
-      isOllamaConfigured ? OLLAMA_MODEL : ZAI_MODEL,
-      isOllamaConfigured ? undefined : ZAI_API_KEY,
+      provider === "zAI" ? ZAI_MODEL : localModel,
+      provider === "zAI" ? ZAI_API_KEY : undefined,
       {
         zAI: ZAI_BASE_URL,
       },
@@ -1132,17 +1203,16 @@ app.get("/api/chat/test", async (req, res) => {
 
     res.json({
       configured: true,
-      model: isOllamaConfigured ? OLLAMA_MODEL : ZAI_MODEL,
-      service: isOllamaConfigured ? "Ollama" : "zAI",
+      model: provider === "zAI" ? ZAI_MODEL : localModel,
+      service: provider,
       testResponse,
-      message: `IA (${isOllamaConfigured ? "Ollama" : "zAI"}) está configurado correctamente!`,
+      message: `IA (${provider}) está configurado correctamente!`,
     });
   } catch (error: any) {
-    const service = OLLAMA_HOST ? "Ollama" : "zAI";
     res.status(500).json({
       configured: false,
       error: error.message,
-      help: `Verifica que tu ${service} API key es válida (zAI: https://open.bigmodel.cn/ | Ollama: http://cos-alicante.netbird.vpn)`,
+      help: `Verifica la configuración del proveedor ${provider} (llama.cpp: http://cos-alicante.netbird.vpn:8080 | Ollama: http://cos-alicante.netbird.vpn | zAI: https://open.bigmodel.cn/)`,
     });
   }
 });
@@ -1191,12 +1261,12 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
   const { message, language = "ja" } = req.body;
 
   // Verificar si hay algún modelo de IA configurado
-  const isOllamaConfigured = !!OLLAMA_HOST;
+  const anyProviderConfigured = !!(LLAMACPP_HOST || OLLAMA_HOST || ZAI_API_KEY);
 
-  if (!isOllamaConfigured && !ZAI_API_KEY) {
+  if (!anyProviderConfigured) {
     return res.status(500).json({
       error: "Ningún modelo de IA está configurado",
-      help: "Configura ZAI_API_KEY para usar zAI, o OLLAMA_HOST para usar Ollama local.",
+      help: "Configura LLAMACPP_HOST (llama.cpp), OLLAMA_HOST (Ollama) o ZAI_API_KEY (zAI).",
     });
   }
 

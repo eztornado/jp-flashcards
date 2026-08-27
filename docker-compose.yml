@@ -8,6 +8,10 @@ services:
       - PORT=3000
       - HOST=0.0.0.0
       - NODE_ENV=production
+      # Configuración llama.cpp (prioridad sobre Ollama si está configurado)
+      - LLAMACPP_HOST=${LLAMACPP_HOST:-}
+      - LLAMACPP_MODEL=${LLAMACPP_MODEL:-gemma4:12b}
+      # Configuración Ollama (opcional)
       - OLLAMA_HOST=${OLLAMA_HOST:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-}
       # Configuración servicio OCR de Reigreengroup (requerido para import por OCR y lecciones)

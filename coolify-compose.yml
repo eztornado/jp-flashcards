@@ -14,6 +14,8 @@ services:
       - HOST=0.0.0.0
       - NODE_ENV=production
       # IA Configuration (Optional)
+      - LLAMACPP_HOST=${LLAMACPP_HOST:-}
+      - LLAMACPP_MODEL=${LLAMACPP_MODEL:-gemma4:12b}
       - OLLAMA_HOST=${OLLAMA_HOST:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-}
       - OCR_BASE_URL=${OCR_BASE_URL:-https://ocr.reigreengroup.com}
