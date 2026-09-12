@@ -3,6 +3,8 @@
 App de tarjetas para estudiar japonés (Kanji, Romaji y traducción en español).
 Incluye **frontend** (React + Mantine) y **backend** (Express + SQLite), sin usuarios.
 
+Proyecto ejemplo producción: https://jpflags.tornadocore.es/
+
 ## 🌟 Características
 
 - 📚 **Vocabulario y Kanji**: Dos listas separadas para estudiar
