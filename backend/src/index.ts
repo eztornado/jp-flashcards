@@ -311,24 +311,27 @@ async function callLLM(
 
 // Función auxiliar para llamar al microservicio OCR de Reigreengroup.
 // Recibe el buffer del archivo (imagen o PDF) y devuelve el texto extraído (ocr_result).
-async function callOCR(fileBuffer: Buffer, docType: string = "general"): Promise<string> {
+// Usa el endpoint multipart /ocr/pdf: el endpoint JSON /ocr está roto en producción
+// (su handler lee request_data.image pero el modelo OCRRequest define `file`).
+async function callOCR(
+  fileBuffer: Buffer,
+  docType: string = "general",
+  filename: string = "documento.pdf"
+): Promise<string> {
   if (!OCR_API_KEY) throw new Error("El servicio OCR no está configurado (falta OCR_API_KEY)");
 
-  const response = await axios.post(
-    `${OCR_BASE_URL}/ocr`,
-    {
-      file: fileBuffer.toString("base64"),
-      doc_type: docType,
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
+  form.append("doc_type", docType);
+
+  const response = await axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
+    headers: {
+      "X-API-Key": OCR_API_KEY,
     },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": OCR_API_KEY,
-      },
-      timeout: 600_000, // el OCR con LLM puede tardar varios minutos
-      maxBodyLength: Infinity,
-    }
-  );
+    timeout: 600_000, // el OCR con LLM puede tardar varios minutos
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
 
   const ocrResult = response.data?.ocr_result;
   if (!ocrResult || typeof ocrResult !== "string") {
@@ -901,7 +904,7 @@ app.post("/api/import/ocr", upload.single("file"), requireRole("ADMIN"), async (
     console.log(`[OCR Import] Procesando ${req.file.originalname} (${req.file.mimetype}, doc_type=${docType})`);
 
     // 1) Extracción de texto con el microservicio OCR
-    const ocrText = await callOCR(req.file.buffer, docType);
+    const ocrText = await callOCR(req.file.buffer, docType, req.file.originalname);
 
     // 2) Estructurización con el modelo de texto de Ollama
     const structured = await callLLM(
@@ -1107,7 +1110,7 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
     const sections: string[] = [];
     for (let i = 0; i < files.length; i++) {
       console.log(`[Lesson Generate] OCR ${i + 1}/${files.length}: ${files[i].originalname}`);
-      const text = await callOCR(files[i].buffer, "leccion_japones");
+      const text = await callOCR(files[i].buffer, "leccion_japones", files[i].originalname);
       sections.push(`--- CAPTURA ${i + 1} (${files[i].originalname}) ---\n${text}`);
     }
     const ocrText = sections.join("\n\n");
