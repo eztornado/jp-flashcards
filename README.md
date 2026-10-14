@@ -163,7 +163,7 @@ jp-flashcards/
 
 ### 💬 Chat con IA
 - Práctica de conversación
-- Soporte para Ollama (local) o zAI (nube)
+- Soporte para IA local (llama.cpp > Ollama) o zAI (nube, solo si hay ZAI_API_KEY)
 - Contexto del vocabulario
 
 ## 🛠️ Troubleshooting

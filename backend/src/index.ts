@@ -177,18 +177,29 @@ async function resolveLlamacppModel(): Promise<string> {
   return LLAMACPP_MODEL;
 }
 
-// Función auxiliar para llamar al modelo de IA (soporta zAI y Ollama)
+// Función auxiliar para llamar al modelo de IA.
+// El proveedor se resuelve AQUÍ (no en los puntos de llamada) según los env:
+// prioridad llama.cpp > Ollama > zAI. zAI solo se usa si hay ZAI_API_KEY.
+const activeProvider: "llama.cpp" | "Ollama" | "zAI" | null = LLAMACPP_HOST
+  ? "llama.cpp"
+  : OLLAMA_HOST
+    ? "Ollama"
+    : ZAI_API_KEY
+      ? "zAI"
+      : null;
+
 async function callLLM(
   messages: any[],
-  model: string,
-  apiKey?: string,
-  baseUrls?: any,
   extraOptions?: { temperature?: number; num_ctx?: number; max_tokens?: number },
 ): Promise<string> {
+  if (!activeProvider) {
+    throw new Error(
+      "Ningún modelo de IA está configurado: define LLAMACPP_HOST (llama.cpp), OLLAMA_HOST (Ollama) o ZAI_API_KEY (zAI) en el .env"
+    );
+  }
   try {
-    // Verificar qué proveedor usar: llama.cpp > Ollama > zAI
-    const isLlamacpp = !!LLAMACPP_HOST;
-    const isOllama = !isLlamacpp && !!OLLAMA_HOST;
+    const isLlamacpp = activeProvider === "llama.cpp";
+    const isOllama = activeProvider === "Ollama";
 
     if (isLlamacpp) {
       // Llamada a llama.cpp usando la API OpenAI-compatible /v1/chat/completions
@@ -266,12 +277,12 @@ async function callLLM(
         return "Lo siento, no pude generar una respuesta.";
       }
       return reply;
-    } else if (apiKey) {
-      // Llamada a zAI GLM (retrocompatibilidad)
+    } else {
+      // zAI GLM (retrocompatibilidad, solo si ZAI_API_KEY está seteada)
       const response = await axios.post(
-        `${baseUrls.zAI}/chat/completions`,
+        `${ZAI_BASE_URL}/chat/completions`,
         {
-          model: model,
+          model: ZAI_MODEL,
           messages: messages,
           temperature: extraOptions?.temperature ?? 0.7,
           max_tokens: extraOptions?.max_tokens ?? 500,
@@ -279,7 +290,7 @@ async function callLLM(
         },
         {
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${ZAI_API_KEY}`,
             "Content-Type": "application/json",
           },
         }
@@ -290,12 +301,9 @@ async function callLLM(
         "Lo siento, no pude generar una respuesta."
       );
     }
-
-    throw new Error("No hay configuración de IA disponible");
   } catch (error: any) {
-    const isOllama = !!OLLAMA_HOST;
     console.error(
-      `[LLM Error] ${isOllama ? "Ollama" : "zAI GLM"}:`,
+      `[LLM Error] ${activeProvider}:`,
       error.response?.data || error.message
     );
     if (error.response) {
@@ -304,7 +312,7 @@ async function callLLM(
     }
     throw new Error(
       error.response?.data?.error?.message ||
-        `Error al comunicarse con el modelo de IA (${isOllama ? "Ollama" : "zAI"})`
+        `Error al comunicarse con el modelo de IA (${activeProvider})`
     );
   }
 }
@@ -379,10 +387,6 @@ function extractJson<T>(text: string): T {
   throw new Error("No se pudo extraer JSON válido de la respuesta del modelo");
 }
 
-// Función helper para llamar a zAI GLM (mantenida para compatibilidad)
-async function callZAIGLM(messages: any[]): Promise<string> {
-  return callLLM(messages, ZAI_MODEL, ZAI_API_KEY, { zAI: ZAI_BASE_URL });
-}
 
 const app = express();
 app.use(cors());
@@ -927,9 +931,6 @@ app.post("/api/import/ocr", upload.single("file"), requireRole("ADMIN"), async (
           content: `Texto extraído por OCR:\n\n${ocrText}`,
         },
       ],
-      OLLAMA_MODEL,
-      undefined,
-      { zAI: ZAI_BASE_URL }
     );
 
     let items: Array<{ kanji: string; romaji: string; translation: string }> = [];
@@ -1135,9 +1136,6 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
         { role: "system", content: lessonPrompt },
         { role: "user", content: `Texto extraído por OCR:\n\n${ocrText}` },
       ],
-      OLLAMA_MODEL,
-      undefined,
-      { zAI: ZAI_BASE_URL },
       { temperature: 0.4, num_ctx: 16384, max_tokens: 8000 }
     );
 
@@ -1178,8 +1176,8 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
 
 // GET /api/chat/test - Verificar que el modelo de IA está configurado correctamente
 app.get("/api/chat/test", async (req, res) => {
-  // Detectar proveedor configurado (prioridad: llama.cpp > Ollama > zAI)
-  const provider = LLAMACPP_HOST ? "llama.cpp" : OLLAMA_HOST ? "Ollama" : ZAI_API_KEY ? "zAI" : null;
+  // Proveedor activo (prioridad: llama.cpp > Ollama > zAI)
+  const provider = activeProvider;
   const localModel = LLAMACPP_HOST ? await resolveLlamacppModel() : OLLAMA_MODEL;
 
   if (!provider) {
@@ -1195,14 +1193,7 @@ app.get("/api/chat/test", async (req, res) => {
     const testMessages = [{ role: "user", content: "Hola, ¿cómo estás?" }];
 
     // Llamar al modelo de IA (función unificada)
-    const testResponse = await callLLM(
-      testMessages,
-      provider === "zAI" ? ZAI_MODEL : localModel,
-      provider === "zAI" ? ZAI_API_KEY : undefined,
-      {
-        zAI: ZAI_BASE_URL,
-      },
-    );
+    const testResponse = await callLLM(testMessages);
 
     res.json({
       configured: true,
@@ -1311,7 +1302,7 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
          Aquí hay algunas palabras del vocabulario del estudiante:\n${vocabContext}
          Puedes hacer referencias a estas palabras si es relevante para la conversación.`;
 
-    // Crear el array de mensajes para zAI GLM
+    // Crear el array de mensajes para el modelo de IA
     const messages: any[] = [
       { role: "system", content: systemPrompt },
       ...history.slice(-10).map((m: any) => ({
@@ -1322,8 +1313,8 @@ app.post("/api/chat/sessions/:id/messages", async (req, res) => {
       { role: "user", content: message },
     ];
 
-    // Llamar a zAI GLM
-    const assistantMessage = await callZAIGLM(messages);
+    // Llamar al modelo de IA configurado (llama.cpp > Ollama > zAI)
+    const assistantMessage = await callLLM(messages);
 
     // Guardar respuesta del asistente
     const assistantStmt = db.prepare(
