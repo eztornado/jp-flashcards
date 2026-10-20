@@ -116,11 +116,19 @@ Ver [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) para instrucciones detalladas.
 ## 💾 Persistencia de Datos
 
 ### Local
-- **Backend**: `backend/data/words.sqlite`
+- **Backend**: `backend/data/words.sqlite` (ignorado por git, ver `.gitignore`)
 
-### Docker
+### Docker / Coolify
 - **Volumen**: `jp-data:/app/data`
-- **Backup**: `docker cp jp-flashcards-backend-1:/app/data ./backup`
+- **Backup**: `docker cp <contenedor>:/app/data ./backup`
+
+> ⚠️ La base de datos **no forma parte de la imagen** (Dockerfile sólo copia
+> `dist/` y `.dockerignore` excluye `data`), y en runtime se sirve desde el
+> volumen `jp-data` montado en `/app/data`. Por eso un despliegue no puede
+> sobrescribir los datos de producción.
+>
+> Para que se mantenga así: no uses `docker compose down -v` (elimina volúmenes)
+> y no cambies el montaje por un bind-mount a `./backend/data`.
 
 ## 🔧 Configuración
 
