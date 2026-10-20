@@ -150,6 +150,8 @@ OCR_BASE_URL=https://ocr.reigreengroup.com
 OCR_API_KEY=tu-clave-del-servicio-ocr
 OCR_LESSON_DOC_TYPE=scan   # scan | table
 OCR_VOCAB_DOC_TYPE=table   # table
+OCR_TIMEOUT_MS=300000      # opcional: timeout del OCR (5 min)
+LLM_TIMEOUT_MS=600000      # opcional: timeout del modelo (10 min)
 ```
 
 > ⚠️ El OCR sólo acepta los `doc_type` documentados por el servicio

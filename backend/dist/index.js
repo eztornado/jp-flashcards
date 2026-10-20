@@ -137,6 +137,9 @@ const OCR_SUPPORTED_DOC_TYPES = new Set([
 ]);
 const OCR_LESSON_DOC_TYPE = process.env.OCR_LESSON_DOC_TYPE || "scan";
 const OCR_VOCAB_DOC_TYPE = process.env.OCR_VOCAB_DOC_TYPE || "table";
+// Timeouts (ms). El OCR normal tarda 10-60 s por página; el LLM 60-120 s.
+const OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS || 300000);
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 600000);
 const OLLAMA_CHAT_URL = OLLAMA_HOST
     ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/chat`
     : "";
@@ -179,6 +182,55 @@ const activeProvider = LLAMACPP_HOST
         : ZAI_API_KEY
             ? "zAI"
             : null;
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function isTimeoutError(err) {
+    return (err?.code === "ECONNABORTED" ||
+        err?.code === "ETIMEDOUT" ||
+        /timeout of \d+ms exceeded/i.test(err?.message ?? ""));
+}
+// Texto legible de un error HTTP: "HTTP 500 (sin cuerpo)", "HTTP 503: no available server"...
+function describeHttpError(err) {
+    if (err?.response) {
+        const data = err.response.data;
+        const body = typeof data === "string" ? data : JSON.stringify(data ?? {});
+        const trimmed = (body || "").trim();
+        const suffix = trimmed && trimmed !== "{}" ? `: ${trimmed.slice(0, 300)}` : " (sin cuerpo)";
+        return `HTTP ${err.response.status}${suffix}`;
+    }
+    const detail = [err?.code, err?.message].filter(Boolean).join(": ");
+    return detail || String(err);
+}
+// Solo reintentamos fallos transitorios. Un timeout NO se reintenta: ya hemos
+// esperado varios minutos y duplicarlo empeora la experiencia.
+function isRetryableError(err) {
+    if (err?.response) {
+        const status = err.response.status;
+        return status >= 500 || status === 429;
+    }
+    if (isTimeoutError(err))
+        return false;
+    return /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH/i.test(String(err?.code ?? ""));
+}
+// Reintenta una llamada externa (el router de llama.cpp devuelve 500 sin cuerpo
+// mientras recarga el modelo, y el OCR a veces responde 503 puntualmente).
+async function withRetry(label, fn, attempts = 2, delayMs = 4000) {
+    let lastError;
+    for (let i = 1; i <= attempts; i++) {
+        try {
+            return await fn();
+        }
+        catch (err) {
+            lastError = err;
+            if (i === attempts || !isRetryableError(err))
+                throw err;
+            console.warn(`[${label}] Intento ${i}/${attempts} falló (${describeHttpError(err)}). Reintentando en ${delayMs * i} ms...`);
+            await sleep(delayMs * i);
+        }
+    }
+    throw lastError;
+}
 async function callLLM(messages, extraOptions) {
     if (!activeProvider) {
         throw new Error("Ningún modelo de IA está configurado: define LLAMACPP_HOST (llama.cpp), OLLAMA_HOST (Ollama) o ZAI_API_KEY (zAI) en el .env");
@@ -191,7 +243,7 @@ async function callLLM(messages, extraOptions) {
             const llamacppModel = await resolveLlamacppModel();
             console.log("[llama.cpp Request] URL:", `${LLAMACPP_HOST}/v1/chat/completions`);
             console.log("[llama.cpp Request] Model:", llamacppModel);
-            const response = await axios.post(`${LLAMACPP_HOST}/v1/chat/completions`, {
+            const response = await withRetry("llama.cpp", () => axios.post(`${LLAMACPP_HOST}/v1/chat/completions`, {
                 model: llamacppModel,
                 messages: messages.map((m) => ({ role: m.role, content: m.content })),
                 stream: false,
@@ -199,9 +251,12 @@ async function callLLM(messages, extraOptions) {
                 max_tokens: extraOptions?.max_tokens ?? 2048,
             }, {
                 headers: { "Content-Type": "application/json" },
-                timeout: 600000,
+                timeout: LLM_TIMEOUT_MS,
                 maxBodyLength: Infinity,
-            });
+            }), 
+            // El router recarga el modelo cuando otro cliente pide uno distinto:
+            // 3 intentos cubren los reinicios típicos de ~20 s.
+            3, 5000);
             console.log("[llama.cpp Response] Status:", response.status);
             const choice = response.data.choices?.[0];
             console.log("[llama.cpp Response] finish_reason:", choice?.finish_reason, "| reasoning chars:", choice?.message?.reasoning_content?.length ?? 0);
@@ -273,13 +328,30 @@ async function callLLM(messages, extraOptions) {
         }
     }
     catch (error) {
-        console.error(`[LLM Error] ${activeProvider}:`, error.response?.data || error.message);
-        if (error.response) {
-            console.error("[LLM Error] Status:", error.response.status);
-            console.error("[LLM Error] Headers:", error.response.headers);
+        // Errores propios (respuesta vacía, límite de tokens...): se propagan tal cual.
+        if (!error?.response && !error?.code)
+            throw error;
+        const apiMessage = error.response?.data?.error?.message;
+        const status = error.response?.status;
+        const detail = describeHttpError(error);
+        const targetHost = activeProvider === "llama.cpp"
+            ? LLAMACPP_HOST
+            : activeProvider === "Ollama"
+                ? OLLAMA_HOST
+                : ZAI_BASE_URL;
+        let hint = "";
+        if (!error.response) {
+            hint = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH/i.test(detail)
+                ? ` (¿es alcanzable ${targetHost} desde este servidor? ¿VPN/Netbird conectada?)`
+                : "";
         }
-        throw new Error(error.response?.data?.error?.message ||
-            `Error al comunicarse con el modelo de IA (${activeProvider})`);
+        else if (status && status >= 500) {
+            hint = " (el servidor del modelo puede estar cargando o reiniciándose; reintenta en unos segundos)";
+        }
+        console.error(`[LLM Error] ${activeProvider}: ${detail}${hint}`);
+        throw new Error(apiMessage
+            ? `${apiMessage} (${activeProvider}, HTTP ${status})`
+            : `Error al comunicarse con el modelo de IA (${activeProvider}): ${detail}${hint}`);
     }
 }
 // Repara texto que llega doblemente codificado (UTF-8 interpretado como
@@ -306,6 +378,25 @@ function fixMojibake(text) {
 // Recibe el buffer del archivo (imagen o PDF) y devuelve el texto extraído (ocr_result).
 // Usa el endpoint multipart /ocr/pdf: el endpoint JSON /ocr está roto en producción
 // (su handler lee request_data.image pero el modelo OCRRequest define `file`).
+// Comprobación rápida (cacheada 30 s) para no esperar 5 minutos si el OCR
+// está caído: en ese caso fallamos en ~1 s con un mensaje claro.
+let ocrHealthCache = { at: 0, ok: true };
+async function ensureOCRServiceUp() {
+    if (Date.now() - ocrHealthCache.at < 30000) {
+        if (!ocrHealthCache.ok)
+            throw new Error(ocrHealthCache.error);
+        return;
+    }
+    try {
+        await axios.get(`${OCR_BASE_URL}/ocr/health`, { timeout: 8000 });
+        ocrHealthCache = { at: Date.now(), ok: true };
+    }
+    catch (err) {
+        const message = `El servicio de OCR no está disponible (${describeHttpError(err)}). Comprueba ${OCR_BASE_URL}/ocr/health`;
+        ocrHealthCache = { at: Date.now(), ok: false, error: message };
+        throw new Error(message);
+    }
+}
 async function callOCR(fileBuffer, docType = OCR_LESSON_DOC_TYPE, filename = "documento.pdf") {
     if (!OCR_API_KEY)
         throw new Error("El servicio OCR no está configurado (falta OCR_API_KEY)");
@@ -315,18 +406,32 @@ async function callOCR(fileBuffer, docType = OCR_LESSON_DOC_TYPE, filename = "do
         console.warn(`[OCR] doc_type no soportado "${docType}", usando "${OCR_LESSON_DOC_TYPE}"`);
         docType = OCR_LESSON_DOC_TYPE;
     }
-    const form = new FormData();
-    form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
-    form.append("doc_type", docType);
+    await ensureOCRServiceUp();
     console.log(`[OCR] POST ${OCR_BASE_URL}/ocr/pdf doc_type=${docType} file=${filename} (${fileBuffer.length} bytes)`);
-    const response = await axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
-        headers: {
-            "X-API-Key": OCR_API_KEY,
-        },
-        timeout: 600000, // el OCR con LLM puede tardar varios minutos
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-    });
+    let response;
+    try {
+        response = await withRetry("OCR", () => {
+            // FormData nuevo en cada intento: el body no es reutilizable de forma fiable.
+            const form = new FormData();
+            form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
+            form.append("doc_type", docType);
+            return axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
+                headers: {
+                    "X-API-Key": OCR_API_KEY,
+                },
+                timeout: OCR_TIMEOUT_MS,
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity,
+            });
+        });
+    }
+    catch (err) {
+        if (isTimeoutError(err)) {
+            throw new Error(`El servicio de OCR no respondió en ${Math.round(OCR_TIMEOUT_MS / 1000)} s (${filename}). ` +
+                "Puede estar saturado; reintenta en unos minutos o divide el documento.");
+        }
+        throw new Error(`Error al comunicarse con el OCR: ${describeHttpError(err)}`);
+    }
     const rawResult = response.data?.ocr_result;
     if (!rawResult || typeof rawResult !== "string") {
         console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data));
@@ -1166,6 +1271,51 @@ app.get("/api/chat/test", async (req, res) => {
             help: `Verifica la configuración del proveedor ${provider} (llama.cpp: http://cos-alicante.netbird.vpn:8080 | Ollama: http://cos-alicante.netbird.vpn | zAI: https://open.bigmodel.cn/)`,
         });
     }
+});
+// GET /api/diagnostics (ADMIN) - Comprueba conectividad con los servicios externos.
+// Útil para depurar despliegues: distingue "no llego al LLM" de "el LLM responde error".
+app.get("/api/diagnostics", requireRole("ADMIN"), async (req, res) => {
+    const checks = {
+        provider: activeProvider,
+        llamacpp: {
+            configured: !!LLAMACPP_HOST,
+            host: LLAMACPP_HOST || null,
+            model_env: LLAMACPP_MODEL,
+            reachable: false,
+        },
+        ocr: {
+            base_url: OCR_BASE_URL,
+            api_key_configured: !!OCR_API_KEY,
+            lesson_doc_type: OCR_LESSON_DOC_TYPE,
+            vocab_doc_type: OCR_VOCAB_DOC_TYPE,
+            reachable: false,
+        },
+    };
+    if (LLAMACPP_HOST) {
+        try {
+            const r = await axios.get(`${LLAMACPP_HOST}/v1/models`, { timeout: 10000 });
+            checks.llamacpp.reachable = true;
+            const models = r.data?.data ?? r.data?.models ?? [];
+            checks.llamacpp.models = models
+                .map((m) => m.id || m.model || m.name)
+                .filter(Boolean);
+            checks.llamacpp.resolved_model = await resolveLlamacppModel();
+            const resolved = models.find((m) => (m.id || m.model || m.name) === checks.llamacpp.resolved_model);
+            checks.llamacpp.model_status = resolved?.status?.value ?? "unknown";
+        }
+        catch (e) {
+            checks.llamacpp.error = [e?.code, e?.message].filter(Boolean).join(": ");
+        }
+    }
+    try {
+        const r = await axios.get(`${OCR_BASE_URL}/ocr/health`, { timeout: 10000 });
+        checks.ocr.reachable = true;
+        checks.ocr.health = r.data;
+    }
+    catch (e) {
+        checks.ocr.error = [e?.code, e?.message].filter(Boolean).join(": ");
+    }
+    res.json(checks);
 });
 // GET /api/chat/sessions - Obtener todas las sesiones de chat
 app.get("/api/chat/sessions", (req, res) => {
