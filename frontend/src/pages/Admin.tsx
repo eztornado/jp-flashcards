@@ -11,6 +11,29 @@ type Kanji = { id: number; kanji: string; onyomi?: string; kunyomi?: string; tra
 type Lesson = { id: number; title: string; description: string; created_at?: string; updated_at?: string }
 type OcrWordItem = { kanji: string; romaji: string; translation: string; include: boolean }
 
+// Extrae un mensaje legible de los errores de la API. El backend puede
+// devolver { error: "texto" }, { error: { fieldErrors: ... } } (zod) o
+// { error: "texto", details: "..." }.
+function apiErrorMessage(e: any, fallback: string): string {
+  const data = e?.response?.data
+  const raw = data?.error ?? data?.details
+  if (typeof raw === 'string') {
+    return data?.details && data.details !== raw ? `${raw} (${data.details})` : raw
+  }
+  if (raw && typeof raw === 'object') {
+    const fieldErrors = raw.fieldErrors ?? raw.formErrors
+    if (fieldErrors && typeof fieldErrors === 'object') {
+      const parts = Object.entries(fieldErrors).flatMap(([field, msgs]) =>
+        ([] as string[]).concat(msgs as any).map((m) => (field === '_errors' ? m : `${field}: ${m}`))
+      )
+      if (parts.length) return parts.join(' · ')
+    }
+    if (typeof raw.message === 'string') return raw.message
+    return JSON.stringify(raw)
+  }
+  return e?.message || fallback
+}
+
 export default function Admin() {
   const [activeTab, setActiveTab] = useState<'vocabulario' | 'kanji' | 'lecciones'>('vocabulario')
 
@@ -206,7 +229,7 @@ export default function Admin() {
       setOcrStep('review')
       notifications.show({ color: 'teal', title: 'OCR completado', message: `${data.totalItems} palabras detectadas. Revísalas antes de guardar.` })
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error en OCR', message: e?.response?.data?.error || e?.message || 'Fallo procesando la imagen' })
+      notifications.show({ color: 'red', title: 'Error en OCR', message: apiErrorMessage(e, 'Fallo procesando la imagen') })
     } finally {
       setOcrLoading(false)
     }
@@ -235,7 +258,7 @@ export default function Admin() {
       resetOcrModal()
       loadWords()
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo guardando las palabras' })
+      notifications.show({ color: 'red', title: 'Error', message: apiErrorMessage(e, 'Fallo guardando las palabras') })
     } finally {
       setOcrSaving(false)
     }
@@ -289,9 +312,20 @@ export default function Admin() {
       const { data } = await api.post('/api/lessons/generate', fd)
       setLessonHtml(data.html)
       if (data.suggestedTitle && !lessonTitle.trim()) setLessonTitle(data.suggestedTitle)
-      notifications.show({ color: 'teal', title: 'Lección generada', message: 'Revisa y edita el contenido antes de guardar' })
+      if (data.truncated) {
+        notifications.show({
+          color: 'yellow',
+          title: 'Lección generada (incompleta)',
+          message: 'El modelo cortó la respuesta y se cerró el HTML automáticamente. Revisa el contenido y complétalo antes de guardar.'
+        })
+      } else {
+        notifications.show({ color: 'teal', title: 'Lección generada', message: 'Revisa y edita el contenido antes de guardar' })
+      }
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error generando lección', message: e?.response?.data?.error || e?.message || 'Fallo generando la lección' })
+      if (e?.response?.data?.ocrTextPreview) {
+        console.warn('[generar lección] Texto OCR recibido:', e.response.data.ocrTextPreview)
+      }
+      notifications.show({ color: 'red', title: 'Error generando lección', message: apiErrorMessage(e, 'Fallo generando la lección') })
     } finally {
       setLessonGenerating(false)
     }
@@ -314,7 +348,7 @@ export default function Admin() {
       setLessonEditorOpened(false)
       loadLessons()
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Fallo guardando la lección' })
+      notifications.show({ color: 'red', title: 'Error', message: apiErrorMessage(e, 'Fallo guardando la lección') })
     } finally {
       setLessonSaving(false)
     }

@@ -20,6 +20,9 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-}
       - OCR_BASE_URL=${OCR_BASE_URL:-https://ocr.reigreengroup.com}
       - OCR_API_KEY=${OCR_API_KEY:-}
+      - OCR_LESSON_DOC_TYPE=${OCR_LESSON_DOC_TYPE:-scan}
+      - OCR_VOCAB_DOC_TYPE=${OCR_VOCAB_DOC_TYPE:-table}
+      - JWT_SECRET=${JWT_SECRET:-}
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-}
     volumes:

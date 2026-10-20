@@ -34,12 +34,26 @@ Proyecto ejemplo producción: https://jpflags.tornadocore.es/
 
 ### Desarrollo Local
 
-En dos terminales:
+1. Configura las variables de entorno del backend:
+
+```bash
+cp backend/.env.example backend/.env
+# Edita backend/.env: JWT_SECRET, OCR_API_KEY y el proveedor de IA
+```
+
+2. Crea el usuario administrador (solo la primera vez):
+
+```bash
+cd backend
+npm i
+npm run create-admin
+```
+
+3. En dos terminales:
 
 ```bash
 # 1) Backend
 cd backend
-npm i
 npm run dev
 # → corre en http://localhost:3000
 
@@ -47,8 +61,11 @@ npm run dev
 cd ../frontend
 npm i
 npm run dev
-# → abre http://localhost:5173
+# → abre http://localhost:2000 (el proxy /api apunta al backend)
 ```
+
+> El frontend usa rutas relativas `/api/...`; en desarrollo Vite las proxya a
+> `http://127.0.0.1:3000` (ver `frontend/vite.config.ts`), igual que nginx en producción.
 
 ### Producción con Docker
 
@@ -110,12 +127,27 @@ Ver [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) para instrucciones detalladas.
 ### Variables de Entorno
 
 ```bash
-# Backend (Opcional - para IA)
+# Backend
+# - Seguridad (obligatorio)
+JWT_SECRET=un-secreto-largo-y-aleatorio
+
+# - IA (opcional)
 OLLAMA_HOST=http://ollama:11434  # Para IA local
 OLLAMA_MODEL=llama3.1
 ZAI_API_KEY=tu_key               # Para IA en la nube
 ZAI_MODEL=glm-4-flash
+
+# - OCR (necesario para importar vocabulario y generar lecciones)
+OCR_BASE_URL=https://ocr.reigreengroup.com
+OCR_API_KEY=tu-clave-del-servicio-ocr
+OCR_LESSON_DOC_TYPE=scan   # scan | table
+OCR_VOCAB_DOC_TYPE=table   # table
 ```
+
+> ⚠️ El OCR sólo acepta los `doc_type` documentados por el servicio
+> (`general`, `contrato`, `table`, `handwriting`, `scan`, `auto_detect`, `company_*`).
+> Valores inventados como `leccion_japones` hacen que el servicio aplique su
+> prompt de facturas y devuelva datos sin relación con el documento.
 
 ## 📂 Estructura del Proyecto
 

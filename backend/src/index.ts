@@ -1,3 +1,6 @@
+// Cargar variables de entorno ANTES que cualquier otro módulo.
+// Debe ser el primer import (ver src/env.ts).
+import "./env.js";
 import express, { Request } from "express";
 import cors from "cors";
 import Database from "better-sqlite3";
@@ -20,7 +23,9 @@ declare global {
   }
 }
 
-// Cargar variables de entorno
+// Las variables de entorno ya se cargaron en src/env.ts (primer import).
+// Se mantiene una segunda carga relativa al cwd por compatibilidad con
+// despliegues que arrancan desde otra ruta; no sobreescribe valores existentes.
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -144,6 +149,19 @@ const LLAMACPP_MODEL = process.env.LLAMACPP_MODEL || "gemma4:12b";
 // Configuración del microservicio OCR (reigreengroup)
 const OCR_BASE_URL = (process.env.OCR_BASE_URL || "https://ocr.reigreengroup.com").replace(/\/$/, "");
 const OCR_API_KEY = process.env.OCR_API_KEY || "";
+// Tipos de documento soportados por el microservicio.
+// OJO: "general" y cualquier valor desconocido activan en el servicio un prompt
+// orientado a facturas (CUPS/NIF/tarifa), por eso NO se usan para material de
+// japonés. "scan" transcripta texto libre y "table" conserva tablas/markdown.
+const OCR_SUPPORTED_DOC_TYPES = new Set([
+  "general", "contrato", "table", "handwriting", "scan",
+  "company_3", "company_5", "company_6", "company_10", "company_15",
+  "company_17", "company_19", "company_24", "company_25", "company_26",
+  "company_27", "company_28", "company_29",
+  "tarifas_15", "tarifas_17", "tarifas_24", "auto_detect",
+]);
+const OCR_LESSON_DOC_TYPE = process.env.OCR_LESSON_DOC_TYPE || "scan";
+const OCR_VOCAB_DOC_TYPE = process.env.OCR_VOCAB_DOC_TYPE || "table";
 const OLLAMA_CHAT_URL = OLLAMA_HOST
   ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/chat`
   : "";
@@ -225,13 +243,30 @@ async function callLLM(
 
       console.log("[llama.cpp Response] Status:", response.status);
 
+      const choice = response.data.choices?.[0];
+      console.log(
+        "[llama.cpp Response] finish_reason:",
+        choice?.finish_reason,
+        "| reasoning chars:",
+        choice?.message?.reasoning_content?.length ?? 0,
+      );
+
       // Los modelos "thinking" (como gemma4) pueden devolver el texto en
-      // reasoning_content si agotan los tokens antes de emitir content
-      const reply =
-        response.data.choices?.[0]?.message?.content ||
-        response.data.choices?.[0]?.message?.reasoning_content ||
-        "";
+      // reasoning_content si agotan los tokens antes de emitir content.
+      const reply = choice?.message?.content || "";
       if (!reply) {
+        if (choice?.finish_reason === "length") {
+          throw new Error(
+            "El modelo agotó el límite de tokens antes de escribir la respuesta. " +
+            "Prueba con menos capturas o con un modelo sin razonamiento."
+          );
+        }
+        if (choice?.message?.reasoning_content) {
+          throw new Error(
+            "El modelo solo devolvió razonamiento interno (reasoning_content) sin respuesta final. " +
+            "Prueba de nuevo o usa otro modelo."
+          );
+        }
         console.error("[llama.cpp Error] Empty response, full data:", JSON.stringify(response.data).slice(0, 1000));
         throw new Error("llama.cpp devolvió una respuesta vacía");
       }
@@ -317,20 +352,50 @@ async function callLLM(
   }
 }
 
+// Repara texto que llega doblemente codificado (UTF-8 interpretado como
+// Latin-1). El microservicio OCR devuelve a veces cadenas tipo
+// "æ\x9c¬èª\x9e" en lugar de "日本語"; reinterpretando los bytes se recupera.
+function fixMojibake(text: string): string {
+  if (!text) return text;
+  const mojibake = text.match(/[ÃÂâ][\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014\u2018\u2019\u201A\u201C\u201D\u201E\u2020\u2021\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]/g);
+  if (!mojibake || mojibake.length < 2) return text;
+
+  const repaired = Buffer.from(text, "latin1").toString("utf8");
+  if (repaired.includes("\uFFFD")) return text;
+
+  const countCjk = (s: string) => (s.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g) || []).length;
+  const countMarks = (s: string) =>
+    (s.match(/[ÃÂ]/g) || []).length;
+  // Aplicar solo si la reparación mejora (más japonés y menos marcas rotas)
+  if (countCjk(repaired) >= countCjk(text) && countMarks(repaired) < countMarks(text)) {
+    return repaired;
+  }
+  return text;
+}
+
 // Función auxiliar para llamar al microservicio OCR de Reigreengroup.
 // Recibe el buffer del archivo (imagen o PDF) y devuelve el texto extraído (ocr_result).
 // Usa el endpoint multipart /ocr/pdf: el endpoint JSON /ocr está roto en producción
 // (su handler lee request_data.image pero el modelo OCRRequest define `file`).
 async function callOCR(
   fileBuffer: Buffer,
-  docType: string = "general",
+  docType: string = OCR_LESSON_DOC_TYPE,
   filename: string = "documento.pdf"
 ): Promise<string> {
   if (!OCR_API_KEY) throw new Error("El servicio OCR no está configurado (falta OCR_API_KEY)");
 
+  // Nunca enviamos un doc_type desconocido: el servicio lo trataría con el
+  // prompt de facturas y devolvería datos sin relación con el documento.
+  if (!OCR_SUPPORTED_DOC_TYPES.has(docType)) {
+    console.warn(`[OCR] doc_type no soportado "${docType}", usando "${OCR_LESSON_DOC_TYPE}"`);
+    docType = OCR_LESSON_DOC_TYPE;
+  }
+
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
   form.append("doc_type", docType);
+
+  console.log(`[OCR] POST ${OCR_BASE_URL}/ocr/pdf doc_type=${docType} file=${filename} (${fileBuffer.length} bytes)`);
 
   const response = await axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
     headers: {
@@ -341,11 +406,15 @@ async function callOCR(
     maxContentLength: Infinity,
   });
 
-  const ocrResult = response.data?.ocr_result;
-  if (!ocrResult || typeof ocrResult !== "string") {
+  const rawResult = response.data?.ocr_result;
+  if (!rawResult || typeof rawResult !== "string") {
     console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data));
     throw new Error("El servicio OCR devolvió una respuesta inesperada");
   }
+
+  // Quitar NULs y reparar codificación antes de pasarlo al LLM
+  const ocrResult = fixMojibake(rawResult.replace(/\u0000/g, "")).trim();
+  console.log(`[OCR] OK ${filename}: ${ocrResult.length} caracteres`);
   return ocrResult;
 }
 
@@ -387,10 +456,48 @@ function extractJson<T>(text: string): T {
   throw new Error("No se pudo extraer JSON válido de la respuesta del modelo");
 }
 
+// ===== Utilidades para la generación de lecciones en HTML =====
+
+// Limpia la respuesta del modelo: quita fences de markdown y cualquier texto
+// que haya antes del documento HTML.
+function cleanHtmlResponse(text: string): string {
+  let s = (text || "").trim();
+  s = s.replace(/^\s*```(?:html)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  const start = s.search(/<!doctype\s+html|<html[\s>]/i);
+  if (start > 0) s = s.slice(start);
+  return s.trim();
+}
+
+function htmlStatus(html: string) {
+  const lower = html.toLowerCase();
+  return {
+    hasHtml: lower.includes("<html"),
+    hasClosingHtml: lower.includes("</html>"),
+    hasBody: lower.includes("<body"),
+    hasClosingBody: lower.includes("</body>"),
+  };
+}
+
+// Cierra un documento truncado para que al menos sea renderizable y editable.
+function closeHtmlDocument(html: string): string {
+  let out = html.trimEnd();
+  if (!out.toLowerCase().includes("</body>")) out += "\n</body>";
+  if (!out.toLowerCase().includes("</html>")) out += "\n</html>";
+  return out;
+}
+
+// Comprueba si el texto parece el JSON de factura que devuelve el OCR cuando
+// recibe un doc_type no soportado. Sirve como red de seguridad.
+function looksLikeInvoiceJson(text: string): boolean {
+  return /"(cups|factura|potencias|tarifa)"\s*:/.test(text) || /datos de factura|factura de suministro/i.test(text);
+}
+
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// El HTML de las lecciones viaja en JSON al guardar/editar; el límite por
+// defecto de Express (100 kb) provoca 413 con lecciones largas.
+app.use(express.json({ limit: "20mb" }));
 
 // Auth middleware (must be after express.json and before routes)
 app.use(authMiddleware);
@@ -904,11 +1011,20 @@ app.post("/api/import/ocr", upload.single("file"), requireRole("ADMIN"), async (
       return res.status(400).json({ error: "El archivo debe ser una imagen o un PDF" });
     }
 
-    const docType = (req.body?.doc_type as string) || "vocabulario_japones";
+    const docType = (req.body?.doc_type as string) || OCR_VOCAB_DOC_TYPE;
     console.log(`[OCR Import] Procesando ${req.file.originalname} (${req.file.mimetype}, doc_type=${docType})`);
 
     // 1) Extracción de texto con el microservicio OCR
     const ocrText = await callOCR(req.file.buffer, docType, req.file.originalname);
+
+    if (looksLikeInvoiceJson(ocrText)) {
+      return res.status(502).json({
+        error:
+          "El OCR devolvió datos de factura en lugar del vocabulario. " +
+          "Usa doc_type 'table' o 'scan' (los tipos personalizados no están soportados por el servicio).",
+        ocrTextPreview: ocrText.slice(0, 2000),
+      });
+    }
 
     // 2) Estructurización con el modelo de texto de Ollama
     const structured = await callLLM(
@@ -1111,10 +1227,19 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
     const sections: string[] = [];
     for (let i = 0; i < files.length; i++) {
       console.log(`[Lesson Generate] OCR ${i + 1}/${files.length}: ${files[i].originalname}`);
-      const text = await callOCR(files[i].buffer, "leccion_japones", files[i].originalname);
+      const text = await callOCR(files[i].buffer, OCR_LESSON_DOC_TYPE, files[i].originalname);
       sections.push(`--- CAPTURA ${i + 1} (${files[i].originalname}) ---\n${text}`);
     }
     const ocrText = sections.join("\n\n");
+
+    if (looksLikeInvoiceJson(ocrText)) {
+      return res.status(502).json({
+        error:
+          "El OCR devolvió datos de factura en lugar del contenido de la lección. " +
+          "Revisa OCR_LESSON_DOC_TYPE (usa 'scan' o 'table').",
+        ocrTextPreview: ocrText.slice(0, 2000),
+      });
+    }
 
     // 2) Generación de la página explicativa completa
     const lessonPrompt =
@@ -1128,28 +1253,55 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
       "tablas de vocabulario (japonés, lectura en rōmaji, español), ejemplos de uso con frases de ejemplo, y puntos clave destacados.\n" +
       "- Todo el contenido textual explicativo debe estar EN ESPAÑOL; conserva en japonés (con rōmaji entre paréntesis) las palabras, frases y ejemplos.\n" +
       "- Corrige errores evidentes del OCR usando contexto de japonés, pero NO inventes contenido que contradiga la fuente. Si algo es ilegible, indícalo sutilmente.\n" +
-      "- Añade una sección final de repaso/resumen con los puntos más importantes de la lección.";
+      "- Añade una sección final de repaso/resumen con los puntos más importantes de la lección.\n" +
+      "- No incluyas bloques ``` alrededor del HTML ni comentes la tarea: empieza directamente por <!DOCTYPE html>.";
+
+    const baseMessages = [
+      { role: "system", content: lessonPrompt },
+      { role: "user", content: `Texto extraído por OCR:\n\n${ocrText}` },
+    ];
 
     console.log("[Lesson Generate] Llamando al modelo para generar HTML...");
-    const html = await callLLM(
-      [
-        { role: "system", content: lessonPrompt },
-        { role: "user", content: `Texto extraído por OCR:\n\n${ocrText}` },
-      ],
-      { temperature: 0.4, num_ctx: 16384, max_tokens: 8000 }
-    );
+    const llmOptions = { temperature: 0.4, num_ctx: 16384, max_tokens: 8000 };
 
-    // Limpiar posibles fences de código alrededor del HTML
-    const cleanHtml = html
-      .replace(/^\s*```(?:html)?\s*/i, "")
-      .replace(/\s*```\s*$/i, "")
-      .trim();
+    let raw = await callLLM(baseMessages, llmOptions);
+    let cleanHtml = cleanHtmlResponse(raw);
+    let status = htmlStatus(cleanHtml);
 
-    if (!cleanHtml.toLowerCase().includes("<html")) {
+    // Reintento único si el modelo respondió con prosa/Markdown en lugar de HTML
+    if (!status.hasHtml) {
+      console.warn("[Lesson Generate] Respuesta sin HTML, reintentando con instrucción estricta");
+      raw = await callLLM(
+        [
+          ...baseMessages,
+          { role: "assistant", content: String(raw).slice(0, 2000) },
+          {
+            role: "user",
+            content:
+              "Tu respuesta anterior NO era un documento HTML. Ignora cualquier salida previa y responde " +
+              "ÚNICAMENTE con el documento HTML completo, desde <!DOCTYPE html> hasta </html>, sin markdown ni explicaciones.",
+          },
+        ],
+        llmOptions,
+      );
+      cleanHtml = cleanHtmlResponse(raw);
+      status = htmlStatus(cleanHtml);
+    }
+
+    if (!status.hasHtml) {
       return res.status(502).json({
         error: "El modelo no devolvió un documento HTML válido",
-        rawPreview: cleanHtml.slice(0, 1000),
+        details: "Revisa el texto extraído por OCR; puede estar vacío o no ser una lección de japonés.",
+        rawPreview: String(cleanHtml).slice(0, 1000),
+        ocrTextPreview: ocrText.slice(0, 2000),
       });
+    }
+
+    // Documento truncado: lo cerramos para que sea visible/editable y avisamos
+    const truncated = !status.hasClosingHtml;
+    if (truncated) {
+      console.warn("[Lesson Generate] HTML truncado, cerrando etiquetas");
+      cleanHtml = closeHtmlDocument(cleanHtml);
     }
 
     // Extraer título del <h1> o <title> si existe
@@ -1159,10 +1311,15 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
     const stripTags = (s: string) => s.replace(/<[^>]+>/g, "").trim();
     suggestedTitle = (h1Match && stripTags(h1Match[1])) || (titleMatch && stripTags(titleMatch[1])) || "";
 
+    console.log(
+      `[Lesson Generate] OK: ${cleanHtml.length} caracteres de HTML, ${files.length} captura(s)`,
+    );
+
     res.json({
       html: cleanHtml,
       suggestedTitle: suggestedTitle.slice(0, 200),
       capturesProcessed: files.length,
+      truncated,
     });
   } catch (err: any) {
     console.error("[Lesson Generate] Error:", err?.response?.data || err?.message);
@@ -1366,6 +1523,10 @@ const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
 const server = app.listen(PORT, HOST, () => {
   console.log(`Backend listening on http://${HOST}:${PORT}`);
 });
+
+// La generación de lecciones puede tardar varios minutos (OCR + LLM).
+// El timeout por defecto de Node (5 min) corta la petición antes de terminar.
+server.requestTimeout = 15 * 60 * 1000;
 
 // Handler global de errores no tratados
 process.on('unhandledRejection', (reason, promise) => {
