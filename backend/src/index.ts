@@ -457,10 +457,14 @@ function fixMojibake(text: string): string {
   if (repaired.includes("\uFFFD")) return text;
 
   const countCjk = (s: string) => (s.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g) || []).length;
-  const countMarks = (s: string) =>
-    (s.match(/[ÃÂ]/g) || []).length;
-  // Aplicar solo si la reparación mejora (más japonés y menos marcas rotas)
-  if (countCjk(repaired) >= countCjk(text) && countMarks(repaired) < countMarks(text)) {
+  // Marcas típicas del mojibake: "ÃÂ" (2 bytes UTF-8), "ãâåæ" (3 bytes, japonés)
+  const countMarks = (s: string) => (s.match(/[ÃÂãâåæ]/g) || []).length;
+  const cjkBefore = countCjk(text);
+  const cjkAfter = countCjk(repaired);
+  const marksBefore = countMarks(text);
+  const marksAfter = countMarks(repaired);
+  // Aplicar si aparece japonés que antes no se veía, o si bajan las marcas rotas.
+  if (cjkAfter > cjkBefore || (cjkAfter === cjkBefore && marksAfter < marksBefore)) {
     return repaired;
   }
   return text;
@@ -509,20 +513,35 @@ async function callOCR(
 
   let response: any;
   try {
-    response = await withRetry("OCR", () => {
-      // FormData nuevo en cada intento: el body no es reutilizable de forma fiable.
-      const form = new FormData();
-      form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
-      form.append("doc_type", docType);
-      return axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
-        headers: {
-          "X-API-Key": OCR_API_KEY,
-        },
-        timeout: OCR_TIMEOUT_MS,
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
+    const postToOCR = () =>
+      withRetry("OCR", () => {
+        // FormData nuevo en cada intento: el body no es reutilizable de forma fiable.
+        const form = new FormData();
+        form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
+        form.append("doc_type", docType);
+        return axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
+          headers: {
+            "X-API-Key": OCR_API_KEY,
+          },
+          timeout: OCR_TIMEOUT_MS,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        });
       });
-    });
+
+    response = await postToOCR();
+
+    // El OCR puede responder 200 con texto vacío cuando el modelo de visión
+    // acaba de recargarse. Un segundo intento suele resolverlo.
+    const first =
+      typeof response.data?.ocr_result === "string" ? response.data.ocr_result.trim() : null;
+    if (first === "") {
+      console.warn(
+        `[OCR] Respuesta vacía (modelo ${response.data?.model ?? "?"}, ${Math.round(response.data?.duration_ms ?? 0)} ms), reintentando en 3 s...`,
+      );
+      await sleep(3_000);
+      response = await postToOCR();
+    }
   } catch (err: any) {
     if (isTimeoutError(err)) {
       throw new Error(
@@ -534,9 +553,17 @@ async function callOCR(
   }
 
   const rawResult = response.data?.ocr_result;
-  if (!rawResult || typeof rawResult !== "string") {
-    console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data));
-    throw new Error("El servicio OCR devolvió una respuesta inesperada");
+  if (typeof rawResult === "string" && rawResult.trim() === "") {
+    const model = response.data?.model ? ` (modelo ${response.data.model})` : "";
+    console.error("[OCR Error] Texto vacío:", JSON.stringify(response.data).slice(0, 500));
+    throw new Error(
+      `El OCR no extrajo texto${model}. Suele pasar cuando el modelo de visión está cargando; ` +
+        "reintenta en unos segundos. Si persiste, comprueba el estado del modelo en /api/diagnostics.",
+    );
+  }
+  if (typeof rawResult !== "string") {
+    console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data).slice(0, 1000));
+    throw new Error("El servicio OCR devolvió una respuesta inesperada (falta ocr_result)");
   }
 
   // Quitar NULs y reparar codificación antes de pasarlo al LLM
@@ -1358,6 +1385,9 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
       sections.push(`--- CAPTURA ${i + 1} (${files[i].originalname}) ---\n${text}`);
     }
     const ocrText = sections.join("\n\n");
+    console.log(
+      `[Lesson Generate] Texto OCR (${ocrText.length} chars): ${ocrText.slice(0, 400).replace(/\s+/g, " ")}`,
+    );
 
     if (looksLikeInvoiceJson(ocrText)) {
       return res.status(502).json({
@@ -1373,23 +1403,33 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
       "Eres un profesor de japonés experto en crear material didáctico. " +
       "Recibirás el texto extraído por OCR de una o varias capturas de una lección de japonés (de una escuela o manual). " +
       "Tu tarea es convertir ese contenido en una PÁGINA EXPLICATIVA COMPLETA en HTML para que el estudiante la consulte siempre.\n\n" +
+      "REGLA PRINCIPAL: el texto OCR es la ÚNICA fuente. No añadas vocabulario, gramática, ejemplos ni datos que no aparezcan en él. " +
+      "Si el texto es breve, la página será breve. No rellenes con contenido de tu conocimiento general.\n\n" +
       "Requisitos del HTML:\n" +
       "- Devuelve UNICAMENTE código HTML completo, empezando por <!DOCTYPE html> y terminando con </html>. Sin markdown ni explicaciones.\n" +
       "- Incluye un <style> interno con diseño limpio, moderno y responsive (fuentes legibles, colores suaves, espaciados generosos, tablas y listas bien estilizadas).\n" +
       "- Estructura: título de la lección (<h1>), índice de contenidos si hay varias secciones, explicaciones claras de gramática y vocabulario, " +
       "tablas de vocabulario (japonés, lectura en rōmaji, español), ejemplos de uso con frases de ejemplo, y puntos clave destacados.\n" +
+      "- Recorre TODO el texto OCR de principio a fin y cubre cada una de sus secciones (número/título, vocabulario, encabezados como ぶんけい/文型, " +
+      "ejemplos numerados, etc.). No omitas ninguna parte.\n" +
+      "- Conserva los ejemplos EXACTAMENTE como aparecen en el OCR; no los sustituyas por otros aunque conozcas alternativas mejores.\n" +
       "- Todo el contenido textual explicativo debe estar EN ESPAÑOL; conserva en japonés (con rōmaji entre paréntesis) las palabras, frases y ejemplos.\n" +
-      "- Corrige errores evidentes del OCR usando contexto de japonés, pero NO inventes contenido que contradiga la fuente. Si algo es ilegible, indícalo sutilmente.\n" +
+      "- Corrige erratas evidentes del OCR usando el contexto del japonés, pero NO inventes contenido que no esté en la fuente. Si algo es ilegible, indícalo sutilmente.\n" +
       "- Añade una sección final de repaso/resumen con los puntos más importantes de la lección.\n" +
       "- No incluyas bloques ``` alrededor del HTML ni comentes la tarea: empieza directamente por <!DOCTYPE html>.";
 
     const baseMessages = [
       { role: "system", content: lessonPrompt },
-      { role: "user", content: `Texto extraído por OCR:\n\n${ocrText}` },
+      {
+        role: "user",
+        content:
+          "Texto extraído por OCR (fuente única; no inventes nada que no esté aquí):\n\n" +
+          `<<<OCR\n${ocrText}\nOCR>>>`,
+      },
     ];
 
     console.log("[Lesson Generate] Llamando al modelo para generar HTML...");
-    const llmOptions = { temperature: 0.4, num_ctx: 16384, max_tokens: 8000 };
+    const llmOptions = { temperature: 0.2, num_ctx: 16384, max_tokens: 8000 };
 
     let raw = await callLLM(baseMessages, llmOptions);
     let cleanHtml = cleanHtmlResponse(raw);

@@ -113,6 +113,14 @@ Ver [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) para instrucciones detalladas.
 - `POST /api/chat/sessions` → crea nueva sesión
 - `POST /api/chat/sessions/:id/messages` → envía mensaje
 
+### Diagnóstico
+- `GET /api/diagnostics` (ADMIN) → estado del LLM (host, modelos, `model_status`)
+  y del OCR (health, versión, modelo). Útil cuando falla la generación de lecciones.
+
+> ℹ️ El OCR puede responder `200` con `ocr_result: ""` si el modelo de visión
+> (p. ej. `gemma4`) está cargando en el router de llama.cpp. El backend lo
+> reintenta una vez y, si persiste, devuelve un error explicativo.
+
 ## 💾 Persistencia de Datos
 
 ### Local
