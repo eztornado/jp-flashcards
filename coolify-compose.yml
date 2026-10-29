@@ -22,9 +22,13 @@ services:
       - OCR_API_KEY=${OCR_API_KEY:-}
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-}
+      # Lecciones .html montadas desde el repositorio
+      - LESSONS_PATH=/app/html
     volumes:
       # Coolify maneja los volúmenes automáticamente
       - jp-data:/app/data
+      # Lecciones .html del repositorio (lectura/escritura para el admin)
+      - ./html:/app/html
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/random', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"]
       interval: 30s

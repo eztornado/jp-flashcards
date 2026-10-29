@@ -3,7 +3,7 @@ import { AppShell, Button, Group, Loader, Stack, Text, Title } from '@mantine/co
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 
-type Lesson = { id: number; title: string; description: string; html: string }
+type Lesson = { id: string; title: string; description: string; html: string }
 
 export default function LessonDetail() {
   const { id } = useParams()

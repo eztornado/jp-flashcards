@@ -20,8 +20,11 @@ services:
       # Configuración zAI (opcional)
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-}
+      # Lecciones .html montadas desde el repositorio
+      - LESSONS_PATH=/app/html
     volumes:
       - jp-data:/app/data
+      - ./html:/app/html
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:3000/health || exit 1"]
       interval: 10s

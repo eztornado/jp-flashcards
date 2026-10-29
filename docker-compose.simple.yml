@@ -10,10 +10,13 @@ services:
       - "3000:3000"
     volumes:
       - ./backend/data:/app/data
+      - ./html:/app/html
     environment:
       - PORT=3000
       - HOST=0.0.0.0
       - NODE_ENV=development
+      # Lecciones .html montadas desde el repositorio
+      - LESSONS_PATH=/app/html
 
   frontend:
     build: ./frontend

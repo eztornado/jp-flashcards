@@ -33,6 +33,10 @@ const dbPath = path.join(DATA_PATH, "words.sqlite");
 console.log(`[INFO] Database path: ${dbPath}`);
 console.log(`[INFO] DATA_PATH: ${DATA_PATH}`);
 
+// Directorio de lecciones .html (soporte para Docker y local)
+const LESSONS_PATH = process.env.LESSONS_PATH || path.resolve(__dirname, "..", "..", "html");
+console.log(`[INFO] Lessons path: ${LESSONS_PATH}`);
+
 // Asegurar que el directorio de datos existe
 import fs from "fs";
 if (!fs.existsSync(DATA_PATH)) {
@@ -98,18 +102,6 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-);
-`);
-
-// Crear tabla para lecciones generadas desde capturas (OCR + Ollama)
-db.exec(`
-CREATE TABLE IF NOT EXISTS lessons (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  description TEXT DEFAULT '',
-  html TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `);
 
@@ -1016,7 +1008,7 @@ app.delete("/api/words", requireRole('ADMIN'), (req, res) => {
   res.json({ deleted: info.changes });
 });
 
-// ============ LECCIONES (capturas -> páginas HTML) ============
+// ============ LECCIONES (ficheros .html en LESSONS_PATH) ============
 
 const LessonCreate = z.object({
   title: z.string().min(1).max(200),
@@ -1025,69 +1017,123 @@ const LessonCreate = z.object({
 });
 const LessonUpdate = LessonCreate;
 
-function rowToLesson(row: any, includeHtml = true) {
+// El id de una lección es el nombre del fichero sin extensión (p. ej. "L1-1").
+// La regex excluye /, \ y . para impedir path traversal.
+const LESSON_ID_RE = /^[A-Za-z0-9_-]+$/;
+const lessonFile = (id: string) => path.join(LESSONS_PATH, `${id}.html`);
+
+// Orden natural por código L<n>-<m>; el resto al final, alfabético
+const lessonKey = (id: string): [number, number] => {
+  const m = id.match(/^L(\d+)-(\d+)$/i);
+  return m ? [Number(m[1]), Number(m[2])] : [Infinity, Infinity];
+};
+
+function listLessonIds(): string[] {
+  if (!fs.existsSync(LESSONS_PATH)) return [];
+  return fs
+    .readdirSync(LESSONS_PATH)
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => f.slice(0, -5))
+    .sort((a, b) => {
+      const [a1, a2] = lessonKey(a);
+      const [b1, b2] = lessonKey(b);
+      return a1 - b1 || a2 - b2 || a.localeCompare(b);
+    });
+}
+
+// Título desde <h1>, descripción desde <meta name="description">
+function readLesson(id: string, includeHtml: boolean) {
+  const stat = fs.statSync(lessonFile(id));
+  const html = fs.readFileSync(lessonFile(id), "utf8");
   const base = {
-    id: row.id,
-    title: row.title,
-    description: row.description ?? "",
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    id,
+    title: html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.trim() ?? id,
+    description:
+      html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i)?.[1] ?? "",
+    created_at: stat.birthtime.toISOString(),
+    updated_at: stat.mtime.toISOString(),
   };
-  return includeHtml ? { ...base, html: row.html } : base;
+  return includeHtml ? { ...base, html } : base;
+}
+
+const escHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// Graba título en el <h1> y descripción en el <meta name="description"> del HTML
+function applyMeta(html: string, title: string, description: string): string {
+  let out = html;
+  if (/<h1[^>]*>[\s\S]*?<\/h1>/i.test(out)) {
+    out = out.replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, `<h1>${escHtml(title)}</h1>`);
+  } else if (/<body[^>]*>/i.test(out)) {
+    out = out.replace(/<body[^>]*>/i, (m) => `${m}\n<h1>${escHtml(title)}</h1>`);
+  }
+  const meta = `<meta name="description" content="${escHtml(description)}">`;
+  if (/<meta\s+name=["']description["']/i.test(out)) {
+    out = out.replace(/<meta\s+name=["']description["'][^>]*>/i, meta);
+  } else if (/<\/head>/i.test(out)) {
+    out = out.replace(/<\/head>/i, `${meta}\n</head>`);
+  }
+  return out;
 }
 
 // GET /api/lessons - listado de lecciones (sin el HTML pesado)
 app.get("/api/lessons", (req, res) => {
-  const rows = db
-    .prepare("SELECT id, title, description, created_at, updated_at FROM lessons ORDER BY id DESC")
-    .all();
-  res.json(rows.map((r) => rowToLesson(r, false)));
+  const lessons = [];
+  for (const id of listLessonIds()) {
+    try {
+      lessons.push(readLesson(id, false));
+    } catch {
+      // ponytail: fichero eliminado entre el listado y la lectura; se omite
+    }
+  }
+  res.json(lessons);
 });
 
 // GET /api/lessons/:id - lección completa
 app.get("/api/lessons/:id", (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
-  const row = db.prepare("SELECT * FROM lessons WHERE id = ?").get(id);
-  if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(rowToLesson(row));
+  const { id } = req.params;
+  if (!LESSON_ID_RE.test(id) || !fs.existsSync(lessonFile(id)))
+    return res.status(404).json({ error: "Not found" });
+  res.json(readLesson(id, true));
 });
 
-// POST /api/lessons - crear lección (html revisado/editado en el admin)
+// POST /api/lessons - crear lección (escribe <id>.html en LESSONS_PATH)
 app.post("/api/lessons", requireRole("ADMIN"), (req, res) => {
   const parsed = LessonCreate.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { title, description, html } = parsed.data;
-  const info = db
-    .prepare("INSERT INTO lessons (title, description, html) VALUES (?, ?, ?)")
-    .run(title, description ?? "", html);
-  const row = db.prepare("SELECT * FROM lessons WHERE id = ?").get(info.lastInsertRowid);
-  res.status(201).json(rowToLesson(row));
+  const slug =
+    title
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "leccion";
+  const id = title.match(/\bL\d+-\d+\b/i)?.[0].toUpperCase() ?? slug;
+  if (fs.existsSync(lessonFile(id))) return res.status(409).json({ error: `Ya existe ${id}` });
+  fs.writeFileSync(lessonFile(id), applyMeta(html, title, description ?? ""));
+  res.status(201).json(readLesson(id, true));
 });
 
-// PUT /api/lessons/:id
+// PUT /api/lessons/:id - actualizar lección (reescribe su .html)
 app.put("/api/lessons/:id", requireRole("ADMIN"), (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+  const { id } = req.params;
+  if (!LESSON_ID_RE.test(id) || !fs.existsSync(lessonFile(id)))
+    return res.status(404).json({ error: "Not found" });
   const parsed = LessonUpdate.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { title, description, html } = parsed.data;
-  const info = db
-    .prepare(
-      "UPDATE lessons SET title=?, description=?, html=?, updated_at=CURRENT_TIMESTAMP WHERE id=?"
-    )
-    .run(title, description ?? "", html, id);
-  if (info.changes === 0) return res.status(404).json({ error: "Not found" });
-  const row = db.prepare("SELECT * FROM lessons WHERE id = ?").get(id);
-  res.json(rowToLesson(row));
+  fs.writeFileSync(lessonFile(id), applyMeta(html, title, description ?? ""));
+  res.json(readLesson(id, true));
 });
 
-// DELETE /api/lessons/:id
+// DELETE /api/lessons/:id - elimina el fichero de la lección
 app.delete("/api/lessons/:id", requireRole("ADMIN"), (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
-  const info = db.prepare("DELETE FROM lessons WHERE id=?").run(id);
-  if (info.changes === 0) return res.status(404).json({ error: "Not found" });
+  const { id } = req.params;
+  if (!LESSON_ID_RE.test(id) || !fs.existsSync(lessonFile(id)))
+    return res.status(404).json({ error: "Not found" });
+  fs.unlinkSync(lessonFile(id));
   res.json({ ok: true });
 });
 

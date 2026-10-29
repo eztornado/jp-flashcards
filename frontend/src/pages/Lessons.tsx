@@ -4,7 +4,7 @@ import { IconBook2 } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 
-type Lesson = { id: number; title: string; description: string; created_at?: string; updated_at?: string }
+type Lesson = { id: string; title: string; description: string; created_at?: string; updated_at?: string }
 
 export default function Lessons() {
   const [lessons, setLessons] = useState<Lesson[]>([])

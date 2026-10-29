@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 
 type Word = { id: number; kanji: string; romaji?: string; translation: string }
 type Kanji = { id: number; kanji: string; onyomi?: string; kunyomi?: string; translation: string }
-type Lesson = { id: number; title: string; description: string; created_at?: string; updated_at?: string }
+type Lesson = { id: string; title: string; description: string; created_at?: string; updated_at?: string }
 type OcrWordItem = { kanji: string; romaji: string; translation: string; include: boolean }
 
 export default function Admin() {
@@ -50,7 +50,7 @@ export default function Admin() {
   // Estados para lecciones
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [lessonEditorOpened, setLessonEditorOpened] = useState(false)
-  const [editingLessonId, setEditingLessonId] = useState<number | null>(null)
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null)
   const [lessonTitle, setLessonTitle] = useState('')
   const [lessonDescription, setLessonDescription] = useState('')
   const [lessonHtml, setLessonHtml] = useState('')
@@ -320,7 +320,7 @@ export default function Admin() {
     }
   }
 
-  async function removeLesson(id: number) {
+  async function removeLesson(id: string) {
     if (!confirm('¿Eliminar esta lección?')) return
     try {
       await api.delete(`/api/lessons/${id}`)
