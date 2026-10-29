@@ -36,5 +36,12 @@ yarn-error.log*
 backend/data/
 frontend/dist/
 
+# Base de datos SQLite local (NUNCA se versiona: el volumen de producción
+# vive en /app/data y no debe ser sobrescrito por un despliegue)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
 # Build outputs
 *.log

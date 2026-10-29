@@ -1,3 +1,6 @@
+// Cargar variables de entorno ANTES que cualquier otro módulo.
+// Debe ser el primer import (ver src/env.ts).
+import "./env.js";
 import express from "express";
 import cors from "cors";
 import Database from "better-sqlite3";
@@ -10,7 +13,9 @@ import axios from "axios";
 import dotenv from "dotenv";
 import { authMiddleware, requireRole } from "./auth/middleware.js";
 import { createAuthRoutes } from "./auth/routes.js";
-// Cargar variables de entorno
+// Las variables de entorno ya se cargaron en src/env.ts (primer import).
+// Se mantiene una segunda carga relativa al cwd por compatibilidad con
+// despliegues que arrancan desde otra ruta; no sobreescribe valores existentes.
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,6 +116,22 @@ const LLAMACPP_MODEL = process.env.LLAMACPP_MODEL || "gemma4:12b";
 // Configuración del microservicio OCR (reigreengroup)
 const OCR_BASE_URL = (process.env.OCR_BASE_URL || "https://ocr.reigreengroup.com").replace(/\/$/, "");
 const OCR_API_KEY = process.env.OCR_API_KEY || "";
+// Tipos de documento soportados por el microservicio.
+// OJO: "general" y cualquier valor desconocido activan en el servicio un prompt
+// orientado a facturas (CUPS/NIF/tarifa), por eso NO se usan para material de
+// japonés. "scan" transcripta texto libre y "table" conserva tablas/markdown.
+const OCR_SUPPORTED_DOC_TYPES = new Set([
+    "general", "contrato", "table", "handwriting", "scan",
+    "company_3", "company_5", "company_6", "company_10", "company_15",
+    "company_17", "company_19", "company_24", "company_25", "company_26",
+    "company_27", "company_28", "company_29",
+    "tarifas_15", "tarifas_17", "tarifas_24", "auto_detect",
+]);
+const OCR_LESSON_DOC_TYPE = process.env.OCR_LESSON_DOC_TYPE || "scan";
+const OCR_VOCAB_DOC_TYPE = process.env.OCR_VOCAB_DOC_TYPE || "table";
+// Timeouts (ms). El OCR normal tarda 10-60 s por página; el LLM 60-120 s.
+const OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS || 300000);
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 600000);
 const OLLAMA_CHAT_URL = OLLAMA_HOST
     ? `${OLLAMA_HOST.replace(/\/$/, '')}/api/chat`
     : "";
@@ -153,6 +174,55 @@ const activeProvider = LLAMACPP_HOST
         : ZAI_API_KEY
             ? "zAI"
             : null;
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function isTimeoutError(err) {
+    return (err?.code === "ECONNABORTED" ||
+        err?.code === "ETIMEDOUT" ||
+        /timeout of \d+ms exceeded/i.test(err?.message ?? ""));
+}
+// Texto legible de un error HTTP: "HTTP 500 (sin cuerpo)", "HTTP 503: no available server"...
+function describeHttpError(err) {
+    if (err?.response) {
+        const data = err.response.data;
+        const body = typeof data === "string" ? data : JSON.stringify(data ?? {});
+        const trimmed = (body || "").trim();
+        const suffix = trimmed && trimmed !== "{}" ? `: ${trimmed.slice(0, 300)}` : " (sin cuerpo)";
+        return `HTTP ${err.response.status}${suffix}`;
+    }
+    const detail = [err?.code, err?.message].filter(Boolean).join(": ");
+    return detail || String(err);
+}
+// Solo reintentamos fallos transitorios. Un timeout NO se reintenta: ya hemos
+// esperado varios minutos y duplicarlo empeora la experiencia.
+function isRetryableError(err) {
+    if (err?.response) {
+        const status = err.response.status;
+        return status >= 500 || status === 429;
+    }
+    if (isTimeoutError(err))
+        return false;
+    return /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH/i.test(String(err?.code ?? ""));
+}
+// Reintenta una llamada externa (el router de llama.cpp devuelve 500 sin cuerpo
+// mientras recarga el modelo, y el OCR a veces responde 503 puntualmente).
+async function withRetry(label, fn, attempts = 2, delayMs = 4000) {
+    let lastError;
+    for (let i = 1; i <= attempts; i++) {
+        try {
+            return await fn();
+        }
+        catch (err) {
+            lastError = err;
+            if (i === attempts || !isRetryableError(err))
+                throw err;
+            console.warn(`[${label}] Intento ${i}/${attempts} falló (${describeHttpError(err)}). Reintentando en ${delayMs * i} ms...`);
+            await sleep(delayMs * i);
+        }
+    }
+    throw lastError;
+}
 async function callLLM(messages, extraOptions) {
     if (!activeProvider) {
         throw new Error("Ningún modelo de IA está configurado: define LLAMACPP_HOST (llama.cpp), OLLAMA_HOST (Ollama) o ZAI_API_KEY (zAI) en el .env");
@@ -165,7 +235,7 @@ async function callLLM(messages, extraOptions) {
             const llamacppModel = await resolveLlamacppModel();
             console.log("[llama.cpp Request] URL:", `${LLAMACPP_HOST}/v1/chat/completions`);
             console.log("[llama.cpp Request] Model:", llamacppModel);
-            const response = await axios.post(`${LLAMACPP_HOST}/v1/chat/completions`, {
+            const response = await withRetry("llama.cpp", () => axios.post(`${LLAMACPP_HOST}/v1/chat/completions`, {
                 model: llamacppModel,
                 messages: messages.map((m) => ({ role: m.role, content: m.content })),
                 stream: false,
@@ -173,16 +243,27 @@ async function callLLM(messages, extraOptions) {
                 max_tokens: extraOptions?.max_tokens ?? 2048,
             }, {
                 headers: { "Content-Type": "application/json" },
-                timeout: 600000,
+                timeout: LLM_TIMEOUT_MS,
                 maxBodyLength: Infinity,
-            });
+            }), 
+            // El router recarga el modelo cuando otro cliente pide uno distinto:
+            // 3 intentos cubren los reinicios típicos de ~20 s.
+            3, 5000);
             console.log("[llama.cpp Response] Status:", response.status);
+            const choice = response.data.choices?.[0];
+            console.log("[llama.cpp Response] finish_reason:", choice?.finish_reason, "| reasoning chars:", choice?.message?.reasoning_content?.length ?? 0);
             // Los modelos "thinking" (como gemma4) pueden devolver el texto en
-            // reasoning_content si agotan los tokens antes de emitir content
-            const reply = response.data.choices?.[0]?.message?.content ||
-                response.data.choices?.[0]?.message?.reasoning_content ||
-                "";
+            // reasoning_content si agotan los tokens antes de emitir content.
+            const reply = choice?.message?.content || "";
             if (!reply) {
+                if (choice?.finish_reason === "length") {
+                    throw new Error("El modelo agotó el límite de tokens antes de escribir la respuesta. " +
+                        "Prueba con menos capturas o con un modelo sin razonamiento.");
+                }
+                if (choice?.message?.reasoning_content) {
+                    throw new Error("El modelo solo devolvió razonamiento interno (reasoning_content) sin respuesta final. " +
+                        "Prueba de nuevo o usa otro modelo.");
+                }
                 console.error("[llama.cpp Error] Empty response, full data:", JSON.stringify(response.data).slice(0, 1000));
                 throw new Error("llama.cpp devolvió una respuesta vacía");
             }
@@ -239,38 +320,138 @@ async function callLLM(messages, extraOptions) {
         }
     }
     catch (error) {
-        console.error(`[LLM Error] ${activeProvider}:`, error.response?.data || error.message);
-        if (error.response) {
-            console.error("[LLM Error] Status:", error.response.status);
-            console.error("[LLM Error] Headers:", error.response.headers);
+        // Errores propios (respuesta vacía, límite de tokens...): se propagan tal cual.
+        if (!error?.response && !error?.code)
+            throw error;
+        const apiMessage = error.response?.data?.error?.message;
+        const status = error.response?.status;
+        const detail = describeHttpError(error);
+        const targetHost = activeProvider === "llama.cpp"
+            ? LLAMACPP_HOST
+            : activeProvider === "Ollama"
+                ? OLLAMA_HOST
+                : ZAI_BASE_URL;
+        let hint = "";
+        if (!error.response) {
+            hint = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH/i.test(detail)
+                ? ` (¿es alcanzable ${targetHost} desde este servidor? ¿VPN/Netbird conectada?)`
+                : "";
         }
-        throw new Error(error.response?.data?.error?.message ||
-            `Error al comunicarse con el modelo de IA (${activeProvider})`);
+        else if (status && status >= 500) {
+            hint = " (el servidor del modelo puede estar cargando o reiniciándose; reintenta en unos segundos)";
+        }
+        console.error(`[LLM Error] ${activeProvider}: ${detail}${hint}`);
+        throw new Error(apiMessage
+            ? `${apiMessage} (${activeProvider}, HTTP ${status})`
+            : `Error al comunicarse con el modelo de IA (${activeProvider}): ${detail}${hint}`);
     }
+}
+// Repara texto que llega doblemente codificado (UTF-8 interpretado como
+// Latin-1). El microservicio OCR devuelve a veces cadenas tipo
+// "æ\x9c¬èª\x9e" en lugar de "日本語"; reinterpretando los bytes se recupera.
+function fixMojibake(text) {
+    if (!text)
+        return text;
+    const mojibake = text.match(/[ÃÂâ][\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014\u2018\u2019\u201A\u201C\u201D\u201E\u2020\u2021\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]/g);
+    if (!mojibake || mojibake.length < 2)
+        return text;
+    const repaired = Buffer.from(text, "latin1").toString("utf8");
+    if (repaired.includes("\uFFFD"))
+        return text;
+    const countCjk = (s) => (s.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g) || []).length;
+    // Marcas típicas del mojibake: "ÃÂ" (2 bytes UTF-8), "ãâåæ" (3 bytes, japonés)
+    const countMarks = (s) => (s.match(/[ÃÂãâåæ]/g) || []).length;
+    const cjkBefore = countCjk(text);
+    const cjkAfter = countCjk(repaired);
+    const marksBefore = countMarks(text);
+    const marksAfter = countMarks(repaired);
+    // Aplicar si aparece japonés que antes no se veía, o si bajan las marcas rotas.
+    if (cjkAfter > cjkBefore || (cjkAfter === cjkBefore && marksAfter < marksBefore)) {
+        return repaired;
+    }
+    return text;
 }
 // Función auxiliar para llamar al microservicio OCR de Reigreengroup.
 // Recibe el buffer del archivo (imagen o PDF) y devuelve el texto extraído (ocr_result).
 // Usa el endpoint multipart /ocr/pdf: el endpoint JSON /ocr está roto en producción
 // (su handler lee request_data.image pero el modelo OCRRequest define `file`).
-async function callOCR(fileBuffer, docType = "general", filename = "documento.pdf") {
+// Comprobación rápida (cacheada 30 s) para no esperar 5 minutos si el OCR
+// está caído: en ese caso fallamos en ~1 s con un mensaje claro.
+let ocrHealthCache = { at: 0, ok: true };
+async function ensureOCRServiceUp() {
+    if (Date.now() - ocrHealthCache.at < 30000) {
+        if (!ocrHealthCache.ok)
+            throw new Error(ocrHealthCache.error);
+        return;
+    }
+    try {
+        await axios.get(`${OCR_BASE_URL}/ocr/health`, { timeout: 8000 });
+        ocrHealthCache = { at: Date.now(), ok: true };
+    }
+    catch (err) {
+        const message = `El servicio de OCR no está disponible (${describeHttpError(err)}). Comprueba ${OCR_BASE_URL}/ocr/health`;
+        ocrHealthCache = { at: Date.now(), ok: false, error: message };
+        throw new Error(message);
+    }
+}
+async function callOCR(fileBuffer, docType = OCR_LESSON_DOC_TYPE, filename = "documento.pdf") {
     if (!OCR_API_KEY)
         throw new Error("El servicio OCR no está configurado (falta OCR_API_KEY)");
-    const form = new FormData();
-    form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
-    form.append("doc_type", docType);
-    const response = await axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
-        headers: {
-            "X-API-Key": OCR_API_KEY,
-        },
-        timeout: 600000, // el OCR con LLM puede tardar varios minutos
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-    });
-    const ocrResult = response.data?.ocr_result;
-    if (!ocrResult || typeof ocrResult !== "string") {
-        console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data));
-        throw new Error("El servicio OCR devolvió una respuesta inesperada");
+    // Nunca enviamos un doc_type desconocido: el servicio lo trataría con el
+    // prompt de facturas y devolvería datos sin relación con el documento.
+    if (!OCR_SUPPORTED_DOC_TYPES.has(docType)) {
+        console.warn(`[OCR] doc_type no soportado "${docType}", usando "${OCR_LESSON_DOC_TYPE}"`);
+        docType = OCR_LESSON_DOC_TYPE;
     }
+    await ensureOCRServiceUp();
+    console.log(`[OCR] POST ${OCR_BASE_URL}/ocr/pdf doc_type=${docType} file=${filename} (${fileBuffer.length} bytes)`);
+    let response;
+    try {
+        const postToOCR = () => withRetry("OCR", () => {
+            // FormData nuevo en cada intento: el body no es reutilizable de forma fiable.
+            const form = new FormData();
+            form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename);
+            form.append("doc_type", docType);
+            return axios.post(`${OCR_BASE_URL}/ocr/pdf`, form, {
+                headers: {
+                    "X-API-Key": OCR_API_KEY,
+                },
+                timeout: OCR_TIMEOUT_MS,
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity,
+            });
+        });
+        response = await postToOCR();
+        // El OCR puede responder 200 con texto vacío cuando el modelo de visión
+        // acaba de recargarse. Un segundo intento suele resolverlo.
+        const first = typeof response.data?.ocr_result === "string" ? response.data.ocr_result.trim() : null;
+        if (first === "") {
+            console.warn(`[OCR] Respuesta vacía (modelo ${response.data?.model ?? "?"}, ${Math.round(response.data?.duration_ms ?? 0)} ms), reintentando en 3 s...`);
+            await sleep(3000);
+            response = await postToOCR();
+        }
+    }
+    catch (err) {
+        if (isTimeoutError(err)) {
+            throw new Error(`El servicio de OCR no respondió en ${Math.round(OCR_TIMEOUT_MS / 1000)} s (${filename}). ` +
+                "Puede estar saturado; reintenta en unos minutos o divide el documento.");
+        }
+        throw new Error(`Error al comunicarse con el OCR: ${describeHttpError(err)}`);
+    }
+    const rawResult = response.data?.ocr_result;
+    if (typeof rawResult === "string" && rawResult.trim() === "") {
+        const model = response.data?.model ? ` (modelo ${response.data.model})` : "";
+        console.error("[OCR Error] Texto vacío:", JSON.stringify(response.data).slice(0, 500));
+        throw new Error(`El OCR no extrajo texto${model}. Suele pasar cuando el modelo de visión está cargando; ` +
+            "reintenta en unos segundos. Si persiste, comprueba el estado del modelo en /api/diagnostics.");
+    }
+    if (typeof rawResult !== "string") {
+        console.error("[OCR Error] Unexpected response:", JSON.stringify(response.data).slice(0, 1000));
+        throw new Error("El servicio OCR devolvió una respuesta inesperada (falta ocr_result)");
+    }
+    // Quitar NULs y reparar codificación antes de pasarlo al LLM
+    const ocrResult = fixMojibake(rawResult.replace(/\u0000/g, "")).trim();
+    console.log(`[OCR] OK ${filename}: ${ocrResult.length} caracteres`);
     return ocrResult;
 }
 // Extrae el primer bloque JSON válido del texto de respuesta del modelo
@@ -320,9 +501,45 @@ function extractJson(text) {
     }
     throw new Error("No se pudo extraer JSON válido de la respuesta del modelo");
 }
+// ===== Utilidades para la generación de lecciones en HTML =====
+// Limpia la respuesta del modelo: quita fences de markdown y cualquier texto
+// que haya antes del documento HTML.
+function cleanHtmlResponse(text) {
+    let s = (text || "").trim();
+    s = s.replace(/^\s*```(?:html)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const start = s.search(/<!doctype\s+html|<html[\s>]/i);
+    if (start > 0)
+        s = s.slice(start);
+    return s.trim();
+}
+function htmlStatus(html) {
+    const lower = html.toLowerCase();
+    return {
+        hasHtml: lower.includes("<html"),
+        hasClosingHtml: lower.includes("</html>"),
+        hasBody: lower.includes("<body"),
+        hasClosingBody: lower.includes("</body>"),
+    };
+}
+// Cierra un documento truncado para que al menos sea renderizable y editable.
+function closeHtmlDocument(html) {
+    let out = html.trimEnd();
+    if (!out.toLowerCase().includes("</body>"))
+        out += "\n</body>";
+    if (!out.toLowerCase().includes("</html>"))
+        out += "\n</html>";
+    return out;
+}
+// Comprueba si el texto parece el JSON de factura que devuelve el OCR cuando
+// recibe un doc_type no soportado. Sirve como red de seguridad.
+function looksLikeInvoiceJson(text) {
+    return /"(cups|factura|potencias|tarifa)"\s*:/.test(text) || /datos de factura|factura de suministro/i.test(text);
+}
 const app = express();
 app.use(cors());
-app.use(express.json());
+// El HTML de las lecciones viaja en JSON al guardar/editar; el límite por
+// defecto de Express (100 kb) provoca 413 con lecciones largas.
+app.use(express.json({ limit: "20mb" }));
 // Auth middleware (must be after express.json and before routes)
 app.use(authMiddleware);
 // Healthcheck endpoint - siempre devuelve 200
@@ -753,10 +970,17 @@ app.post("/api/import/ocr", upload.single("file"), requireRole("ADMIN"), async (
         if (!isImage && req.file.mimetype !== "application/pdf") {
             return res.status(400).json({ error: "El archivo debe ser una imagen o un PDF" });
         }
-        const docType = req.body?.doc_type || "vocabulario_japones";
+        const docType = req.body?.doc_type || OCR_VOCAB_DOC_TYPE;
         console.log(`[OCR Import] Procesando ${req.file.originalname} (${req.file.mimetype}, doc_type=${docType})`);
         // 1) Extracción de texto con el microservicio OCR
         const ocrText = await callOCR(req.file.buffer, docType, req.file.originalname);
+        if (looksLikeInvoiceJson(ocrText)) {
+            return res.status(502).json({
+                error: "El OCR devolvió datos de factura en lugar del vocabulario. " +
+                    "Usa doc_type 'table' o 'scan' (los tipos personalizados no están soportados por el servicio).",
+                ocrTextPreview: ocrText.slice(0, 2000),
+            });
+        }
         // 2) Estructurización con el modelo de texto de Ollama
         const structured = await callLLM([
             {
@@ -990,37 +1214,77 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
         const sections = [];
         for (let i = 0; i < files.length; i++) {
             console.log(`[Lesson Generate] OCR ${i + 1}/${files.length}: ${files[i].originalname}`);
-            const text = await callOCR(files[i].buffer, "leccion_japones", files[i].originalname);
+            const text = await callOCR(files[i].buffer, OCR_LESSON_DOC_TYPE, files[i].originalname);
             sections.push(`--- CAPTURA ${i + 1} (${files[i].originalname}) ---\n${text}`);
         }
         const ocrText = sections.join("\n\n");
+        console.log(`[Lesson Generate] Texto OCR (${ocrText.length} chars): ${ocrText.slice(0, 400).replace(/\s+/g, " ")}`);
+        if (looksLikeInvoiceJson(ocrText)) {
+            return res.status(502).json({
+                error: "El OCR devolvió datos de factura en lugar del contenido de la lección. " +
+                    "Revisa OCR_LESSON_DOC_TYPE (usa 'scan' o 'table').",
+                ocrTextPreview: ocrText.slice(0, 2000),
+            });
+        }
         // 2) Generación de la página explicativa completa
         const lessonPrompt = "Eres un profesor de japonés experto en crear material didáctico. " +
             "Recibirás el texto extraído por OCR de una o varias capturas de una lección de japonés (de una escuela o manual). " +
             "Tu tarea es convertir ese contenido en una PÁGINA EXPLICATIVA COMPLETA en HTML para que el estudiante la consulte siempre.\n\n" +
+            "REGLA PRINCIPAL: el texto OCR es la ÚNICA fuente. No añadas vocabulario, gramática, ejemplos ni datos que no aparezcan en él. " +
+            "Si el texto es breve, la página será breve. No rellenes con contenido de tu conocimiento general.\n\n" +
             "Requisitos del HTML:\n" +
             "- Devuelve UNICAMENTE código HTML completo, empezando por <!DOCTYPE html> y terminando con </html>. Sin markdown ni explicaciones.\n" +
             "- Incluye un <style> interno con diseño limpio, moderno y responsive (fuentes legibles, colores suaves, espaciados generosos, tablas y listas bien estilizadas).\n" +
             "- Estructura: título de la lección (<h1>), índice de contenidos si hay varias secciones, explicaciones claras de gramática y vocabulario, " +
             "tablas de vocabulario (japonés, lectura en rōmaji, español), ejemplos de uso con frases de ejemplo, y puntos clave destacados.\n" +
+            "- Recorre TODO el texto OCR de principio a fin y cubre cada una de sus secciones (número/título, vocabulario, encabezados como ぶんけい/文型, " +
+            "ejemplos numerados, etc.). No omitas ninguna parte.\n" +
+            "- Conserva los ejemplos EXACTAMENTE como aparecen en el OCR; no los sustituyas por otros aunque conozcas alternativas mejores.\n" +
             "- Todo el contenido textual explicativo debe estar EN ESPAÑOL; conserva en japonés (con rōmaji entre paréntesis) las palabras, frases y ejemplos.\n" +
-            "- Corrige errores evidentes del OCR usando contexto de japonés, pero NO inventes contenido que contradiga la fuente. Si algo es ilegible, indícalo sutilmente.\n" +
-            "- Añade una sección final de repaso/resumen con los puntos más importantes de la lección.";
-        console.log("[Lesson Generate] Llamando al modelo para generar HTML...");
-        const html = await callLLM([
+            "- Corrige erratas evidentes del OCR usando el contexto del japonés, pero NO inventes contenido que no esté en la fuente. Si algo es ilegible, indícalo sutilmente.\n" +
+            "- Añade una sección final de repaso/resumen con los puntos más importantes de la lección.\n" +
+            "- No incluyas bloques ``` alrededor del HTML ni comentes la tarea: empieza directamente por <!DOCTYPE html>.";
+        const baseMessages = [
             { role: "system", content: lessonPrompt },
-            { role: "user", content: `Texto extraído por OCR:\n\n${ocrText}` },
-        ], { temperature: 0.4, num_ctx: 16384, max_tokens: 8000 });
-        // Limpiar posibles fences de código alrededor del HTML
-        const cleanHtml = html
-            .replace(/^\s*```(?:html)?\s*/i, "")
-            .replace(/\s*```\s*$/i, "")
-            .trim();
-        if (!cleanHtml.toLowerCase().includes("<html")) {
+            {
+                role: "user",
+                content: "Texto extraído por OCR (fuente única; no inventes nada que no esté aquí):\n\n" +
+                    `<<<OCR\n${ocrText}\nOCR>>>`,
+            },
+        ];
+        console.log("[Lesson Generate] Llamando al modelo para generar HTML...");
+        const llmOptions = { temperature: 0.2, num_ctx: 16384, max_tokens: 8000 };
+        let raw = await callLLM(baseMessages, llmOptions);
+        let cleanHtml = cleanHtmlResponse(raw);
+        let status = htmlStatus(cleanHtml);
+        // Reintento único si el modelo respondió con prosa/Markdown en lugar de HTML
+        if (!status.hasHtml) {
+            console.warn("[Lesson Generate] Respuesta sin HTML, reintentando con instrucción estricta");
+            raw = await callLLM([
+                ...baseMessages,
+                { role: "assistant", content: String(raw).slice(0, 2000) },
+                {
+                    role: "user",
+                    content: "Tu respuesta anterior NO era un documento HTML. Ignora cualquier salida previa y responde " +
+                        "ÚNICAMENTE con el documento HTML completo, desde <!DOCTYPE html> hasta </html>, sin markdown ni explicaciones.",
+                },
+            ], llmOptions);
+            cleanHtml = cleanHtmlResponse(raw);
+            status = htmlStatus(cleanHtml);
+        }
+        if (!status.hasHtml) {
             return res.status(502).json({
                 error: "El modelo no devolvió un documento HTML válido",
-                rawPreview: cleanHtml.slice(0, 1000),
+                details: "Revisa el texto extraído por OCR; puede estar vacío o no ser una lección de japonés.",
+                rawPreview: String(cleanHtml).slice(0, 1000),
+                ocrTextPreview: ocrText.slice(0, 2000),
             });
+        }
+        // Documento truncado: lo cerramos para que sea visible/editable y avisamos
+        const truncated = !status.hasClosingHtml;
+        if (truncated) {
+            console.warn("[Lesson Generate] HTML truncado, cerrando etiquetas");
+            cleanHtml = closeHtmlDocument(cleanHtml);
         }
         // Extraer título del <h1> o <title> si existe
         let suggestedTitle = "";
@@ -1028,10 +1292,12 @@ app.post("/api/lessons/generate", upload.array("files"), requireRole("ADMIN"), a
         const titleMatch = cleanHtml.match(/<title[^>]*>(.*?)<\/title>/is);
         const stripTags = (s) => s.replace(/<[^>]+>/g, "").trim();
         suggestedTitle = (h1Match && stripTags(h1Match[1])) || (titleMatch && stripTags(titleMatch[1])) || "";
+        console.log(`[Lesson Generate] OK: ${cleanHtml.length} caracteres de HTML, ${files.length} captura(s)`);
         res.json({
             html: cleanHtml,
             suggestedTitle: suggestedTitle.slice(0, 200),
             capturesProcessed: files.length,
+            truncated,
         });
     }
     catch (err) {
@@ -1074,6 +1340,51 @@ app.get("/api/chat/test", async (req, res) => {
             help: `Verifica la configuración del proveedor ${provider} (llama.cpp: http://cos-alicante.netbird.vpn:8080 | Ollama: http://cos-alicante.netbird.vpn | zAI: https://open.bigmodel.cn/)`,
         });
     }
+});
+// GET /api/diagnostics (ADMIN) - Comprueba conectividad con los servicios externos.
+// Útil para depurar despliegues: distingue "no llego al LLM" de "el LLM responde error".
+app.get("/api/diagnostics", requireRole("ADMIN"), async (req, res) => {
+    const checks = {
+        provider: activeProvider,
+        llamacpp: {
+            configured: !!LLAMACPP_HOST,
+            host: LLAMACPP_HOST || null,
+            model_env: LLAMACPP_MODEL,
+            reachable: false,
+        },
+        ocr: {
+            base_url: OCR_BASE_URL,
+            api_key_configured: !!OCR_API_KEY,
+            lesson_doc_type: OCR_LESSON_DOC_TYPE,
+            vocab_doc_type: OCR_VOCAB_DOC_TYPE,
+            reachable: false,
+        },
+    };
+    if (LLAMACPP_HOST) {
+        try {
+            const r = await axios.get(`${LLAMACPP_HOST}/v1/models`, { timeout: 10000 });
+            checks.llamacpp.reachable = true;
+            const models = r.data?.data ?? r.data?.models ?? [];
+            checks.llamacpp.models = models
+                .map((m) => m.id || m.model || m.name)
+                .filter(Boolean);
+            checks.llamacpp.resolved_model = await resolveLlamacppModel();
+            const resolved = models.find((m) => (m.id || m.model || m.name) === checks.llamacpp.resolved_model);
+            checks.llamacpp.model_status = resolved?.status?.value ?? "unknown";
+        }
+        catch (e) {
+            checks.llamacpp.error = [e?.code, e?.message].filter(Boolean).join(": ");
+        }
+    }
+    try {
+        const r = await axios.get(`${OCR_BASE_URL}/ocr/health`, { timeout: 10000 });
+        checks.ocr.reachable = true;
+        checks.ocr.health = r.data;
+    }
+    catch (e) {
+        checks.ocr.error = [e?.code, e?.message].filter(Boolean).join(": ");
+    }
+    res.json(checks);
 });
 // GET /api/chat/sessions - Obtener todas las sesiones de chat
 app.get("/api/chat/sessions", (req, res) => {
@@ -1194,6 +1505,9 @@ const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = todas las interfaces
 const server = app.listen(PORT, HOST, () => {
     console.log(`Backend listening on http://${HOST}:${PORT}`);
 });
+// La generación de lecciones puede tardar varios minutos (OCR + LLM).
+// El timeout por defecto de Node (5 min) corta la petición antes de terminar.
+server.requestTimeout = 15 * 60 * 1000;
 // Handler global de errores no tratados
 process.on('unhandledRejection', (reason, promise) => {
     console.error('[FATAL] Unhandled Promise Rejection detected!');

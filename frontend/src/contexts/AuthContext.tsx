@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from "react";
+import React, { createContext, useState, useContext } from "react";
 import { api } from "../lib/api";
 
 interface User {
@@ -24,19 +24,24 @@ interface AuthData {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [authData, setAuthData] = useState<AuthData | null>(null);
-
-  // Load auth data from localStorage on mount
-  useEffect(() => {
+  // Inicialización perezosa: leemos localStorage ANTES del primer render.
+  // Si se hace en un useEffect, ProtectedRoute ve isAuthenticated=false en el
+  // primer render y redirige a /login en cada recarga de la página.
+  const [authData, setAuthData] = useState<AuthData | null>(() => {
     const stored = localStorage.getItem("auth");
-    if (stored) {
-      try {
-        setAuthData(JSON.parse(stored));
-      } catch {
+    if (!stored) return null;
+    try {
+      const parsed = JSON.parse(stored) as AuthData;
+      if (!parsed?.token || !parsed?.user) {
         localStorage.removeItem("auth");
+        return null;
       }
+      return parsed;
+    } catch {
+      localStorage.removeItem("auth");
+      return null;
     }
-  }, []);
+  });
 
   const login = async (username: string, password: string) => {
     const response = await api.post("/api/auth/login", { username, password });
