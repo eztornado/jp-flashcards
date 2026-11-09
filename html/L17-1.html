@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L17-1: La forma de diccionario, ～ことができます y las comparaciones</title>
+<style>
+:root{--verde:#0f6b5c;--verde-suave:#e8f4f1;--amarillo:#fff6dc;--borde:#e2e2ea;--tinta:#2c2c34}
+*{box-sizing:border-box}
+body{margin:0;padding:1.5rem;background:#f5f6fa;color:var(--tinta);font-family:"Segoe UI",system-ui,sans-serif;line-height:1.7}
+main{max-width:840px;margin:0 auto;background:#fff;border-radius:14px;padding:2rem;box-shadow:0 2px 12px rgba(30,30,60,.08)}
+h1{font-size:1.55rem;color:var(--verde);border-bottom:3px solid var(--verde);padding-bottom:.5rem;margin-top:0}
+h2{font-size:1.22rem;color:var(--verde);margin-top:2.2rem;border-left:5px solid var(--verde);padding-left:.6rem}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.95rem}
+th{background:var(--verde);color:#fff;padding:.5rem .7rem;text-align:left}
+td{border-bottom:1px solid var(--borde);padding:.5rem .7rem}
+tr:nth-child(even) td{background:#fafafc}
+.jp{font-size:1.15rem}
+.rom{color:#667;font-style:italic}
+.ej{background:var(--verde-suave);border-radius:8px;padding:.9rem 1.1rem;margin:.8rem 0}
+.ej p{margin:.3rem 0}
+.clave{background:var(--amarillo);border-left:4px solid #e0a800;border-radius:6px;padding:.8rem 1rem;margin:1rem 0}
+.indice{background:#f2f6ff;border-radius:8px;padding:.8rem 1.2rem;margin:1rem 0;font-size:.95rem}
+.indice a{color:#2a5db0;text-decoration:none}
+.indice a:hover{text-decoration:underline}
+.repaso{background:var(--verde-suave);border:2px solid var(--verde);border-radius:10px;padding:1rem 1.2rem;margin-top:2rem}
+details{margin:.45rem 0}summary{cursor:pointer;font-weight:600;color:var(--verde)}
+@media(max-width:600px){main{padding:1.1rem}body{padding:.6rem}}
+</style>
+<meta name="description" content="La forma de diccionario (かく, たべる, する), el patrón ～ことができます «poder/saber», y las comparaciones: AはBより «más que», ～と～とどちらが・～のほうが y ～の中で…がいちばん «el más…».">
+</head>
+<body>
+<main>
+<h1>L17-1: La forma de diccionario, ～ことができます y las comparaciones</h1>
+<p>Dos bloques en esta lección: por un lado la <strong>forma de diccionario</strong>, la forma básica de los verbos que el diccionario lista, y con ella el patrón <strong>～ことができます</strong> «poder / saber / ser posible»; por otro, las <strong>comparaciones</strong>: «más que», «cuál de los dos» y «el más de todos».</p>
+
+<div class="indice">
+<strong>Contenido</strong> —
+<a href="#p1">1. La forma de diccionario (V辞書形)</a> ·
+<a href="#p2">2. ～ことができます</a> ·
+<a href="#p3">3. AはBより «más que»</a> ·
+<a href="#p4">4. ～と～とどちらが / ～のほうが</a> ·
+<a href="#p5">5. ～の中で…がいちばん «el más…»</a> ·
+<a href="#voc">Vocabulario</a> ·
+<a href="#repaso">Repaso</a>
+</div>
+
+<h2 id="p1">1. La forma de diccionario (V辞書形)</h2>
+<p>La forma de diccionario es la forma elemental de los verbos: la que aparece listada en el diccionario. Hasta ahora has usado la <strong>forma-ます</strong> (el estilo cortés de la <strong>L1-3</strong>); de la forma de diccionario se derivan muchas construcciones, empezando por la de esta lección. Su formación depende del grupo del verbo (los tres grupos que ya conoces de la <strong>L6-1</strong>):</p>
+<table>
+<tr><th>Grupo</th><th>Regla</th><th>Ejemplos</th></tr>
+<tr><td>Grupo I</td><td>el último sonido (columna い) se reemplaza por el sonido de la <strong>columna う</strong></td><td class="jp">かきます→かく、よみます→よむ、とります→とる、いそぎます→いそぐ、およびます→およぶ、まちます→まつ、はなします→はなす、すいます→すう</td></tr>
+<tr><td>Grupo II</td><td>a la forma-ます se le agrega <strong>る</strong> (quita ます, pon る)</td><td class="jp">たべます→たべる、みます→みる</td></tr>
+<tr><td>Grupo III</td><td>irregulares, se memorizan</td><td class="jp">します→する、きます→くる</td></tr>
+</table>
+<div class="clave"><strong>Clave:</strong> en el Grupo I el cambio es de <em>columna</em>: か→き→く, な→に→ぬ… Por eso まちます da まつ (ち y つ comparten fila) y すいます da すう (el sonido no cambia, solo la columna). La forma-ます sigue sirviendo para el estilo cortés; la de diccionario es la base para construir.</div>
+
+<h2 id="p2">2. ～ことができます</h2>
+<p><span class="jp">できます</span> indica que una persona puede realizar una acción por su propia capacidad, o que un acto es posible debido a una cierta situación. Lo que se puede se marca con <strong>が</strong>, y se expresa con un sustantivo o con <strong>V辞書形 + こと</strong> («cosa»), que convierte la frase verbal en una frase nominal.</p>
+<div class="ej">
+<p class="jp">ミラーさんは 日本語が できます。<br><span class="rom">Miraa-san wa nihongo ga dekimasu.</span> — El Sr. Miller sabe japonés.</p>
+<p class="jp">雪が たくさん 降りましたから、ことしは スキーが できます。<br><span class="rom">Yuki ga takusan furimashita kara, kotoshi wa sukii ga dekimasu.</span> — Como nevó mucho, este año se puede esquiar.</p>
+</div>
+<div class="ej">
+<p class="jp">ミラーさんは 漢字を 読む ことが できます。<br><span class="rom">Miraa-san wa kanji o yomu koto ga dekimasu.</span> — El Sr. Miller sabe leer kanji. <em>(読むことが = frase nominal)</em></p>
+<p class="jp">カードで 払う ことが できます。<br><span class="rom">Kaado de harau koto ga dekimasu.</span> — Se puede pagar con tarjeta.</p>
+<p class="jp">私は およぐことが できます。<br><span class="rom">Watashi wa oyogu koto ga dekimasu.</span> — Sé nadar / Puedo nadar.</p>
+<p class="jp">私は 日本語で 電話を かけることが できません。<br><span class="rom">Watashi wa nihongo de denwa o kakeru koto ga dekimasen.</span> — No puedo hablar por teléfono en japonés.</p>
+</div>
+<div class="clave"><strong>Clave:</strong> el contexto decide entre capacidad y posibilidad: <span class="jp">日本語ができます</span> habla de una habilidad personal; <span class="jp">カードで払うことができます</span> de una posibilidad que ofrece la situación. En ambos casos, la partícula del complemento es <strong>が</strong>, no を.</div>
+
+<h2 id="p3">3. AはBより «más que»</h2>
+<p>La frase modelo <span class="jp">S₁は S₂より Aです</span> indica la calidad o estado de S₁ <strong>en comparación con</strong> S₂: el adjetivo va al final y S₂ —el término de referencia— lleva <span class="jp">より</span> «que».</p>
+<div class="ej">
+<p class="jp">この 車は あの 車より 大きいです。<br><span class="rom">Kono kuruma wa ano kuruma yori ookii desu.</span> — Este coche es más grande que aquel coche.</p>
+<p class="jp">タンさんは キムさんより せが 高いです。<br><span class="rom">Tan-san wa Kimu-san yori se ga takai desu.</span> — Tan es más alto que Kim.</p>
+<p class="jp">今日は きのうより ひまです。<br><span class="rom">Kyoo wa kinoo yori hima desu.</span> — Hoy tengo más tiempo libre que ayer.</p>
+</div>
+<div class="clave"><strong>Clave:</strong> より se pega al término de referencia y A va como tema con は. Con adjetivos de cualidad física como せが高い, la cosa medida va con が (<span class="jp">せが高い</span> «es alto de estatura») — el mismo が-sujeto de las subordinadas que viste en la <strong>L16-3</strong>.</div>
+
+<h2 id="p4">4. ～と～とどちらが / ～のほうが</h2>
+<p>Cuando se comparan <strong>dos</strong> elementos, ambos van marcados con <span class="jp">と</span> y la pregunta usa el interrogativo <span class="jp">どちらが</span>. La respuesta elige uno con <span class="jp">～の ほうが</span> «el de…, ese sí».</p>
+<div class="ej">
+<p class="jp">サッカーと 野球と どちらが おもしろいですか。<br><span class="rom">Sakkā to yakyū to dochira ga omoshiroi desu ka.</span> — ¿Cuál es más interesante, el fútbol o el béisbol?</p>
+<p class="jp">── サッカーの ほうが おもしろいです。<br><span class="rom">── Sakkā no hoo ga omoshiroi desu.</span> — El fútbol es más interesante.</p>
+<p class="jp">ミラーさんと サントスさんと どちらが テニスが 上手ですか。<br><span class="rom">Miraa-san to Santosu-san to dochira ga tenisu ga joozu desu ka.</span> — ¿Quién juega mejor al tenis, el Sr. Miller o el Sr. Santos?</p>
+<p class="jp">北海道と 大阪と どちらが 寒いですか。<br><span class="rom">Hokkaidoo to Oosaka to dochira ga samui desu ka.</span> — ¿Dónde hace más frío, en Hokkaido u en Osaka?</p>
+<p class="jp">春と 秋と どちらが 好きですか。<br><span class="rom">Haru to aki to dochira ga suki desu ka.</span> — ¿Cuál te gusta más, la primavera o el otoño?</p>
+</div>
+<div class="clave"><strong>Clave:</strong> entre dos opciones el interrogativo es <em>siempre</em> どちら, sin importar qué se compare (cosas, personas, lugares, estaciones). No confundas este どちら con el «dónde» cortés de la <strong>L16-2</strong>: ahí aparece sin comparación de por medio.</div>
+
+<h2 id="p5">5. ～の中で…がいちばん «el más…»</h2>
+<p>Con <strong>tres o más</strong>, la partícula <span class="jp">で</span> expresa el <strong>ámbito</strong> dentro del cual se busca el máximo: <span class="jp">～の中で</span> «entre…», <span class="jp">家族で</span> «en la familia», <span class="jp">1年で</span> «en el año». El interrogativo se escoge según lo preguntado — 何 (cosas), どこ (lugares), だれ (personas), いつ (tiempo) — y la respuesta repite la estructura con el ganador.</p>
+<div class="ej">
+<p class="jp">日本料理の 中で 何が 一番 おいしいですか。<br><span class="rom">Nihon ryoori no naka de nani ga ichiban oishii desu ka.</span> — Entre los platos japoneses, ¿cuál es el más sabroso?</p>
+<p class="jp">── 天ぷらが 一番 おいしいです。<br><span class="rom">── Tenpura ga ichiban oishii desu.</span> — El tempura es el más sabroso.</p>
+<p class="jp">ヨーロッパで どこが いちばん よかったですか。<br><span class="rom">Yooroppa de doko ga ichiban yokatta desu ka.</span> — ¿Cuál fue el mejor lugar de Europa?</p>
+<p class="jp">── スイスが いちばん よかったです。<br><span class="rom">── Suisu ga ichiban yokatta desu.</span> — Suiza fue el mejor.</p>
+</div>
+<div class="ej">
+<p class="jp">家族で だれが いちばん せが 高いですか。<br><span class="rom">Kazoku de dare ga ichiban se ga takai desu ka.</span> — ¿Quién es el más alto de su familia?</p>
+<p class="jp">── 弟が いちばん せが 高いです。<br><span class="rom">── Otōto ga ichiban se ga takai desu.</span> — Mi hermano menor es el más alto.</p>
+<p class="jp">1年で いつが いちばん 寒いですか。<br><span class="rom">Ichinen de itsu ga ichiban samui desu ka.</span> — ¿Cuándo es la época más fría del año?</p>
+<p class="jp">── 2月が いちばん 寒いです。<br><span class="rom">── Nigatsu ga ichiban samui desu.</span> — Febrero es el mes más frío.</p>
+<p class="jp">あの 店が この 近くで 一番 人気が あります。<br><span class="rom">Ano mise ga kono chikaku de ichiban ninki ga arimasu.</span> — Aquella tienda es la más popular de esta zona.</p>
+</div>
+<div class="clave"><strong>Clave:</strong> el sujeto interrogativo lleva <strong>が</strong>, nunca は (何が, だれが, どちらが…) — la misma regla que la nota de la <strong>L16-3</strong> para las subordinadas. También puedes preguntar directamente por el sustantivo: <span class="jp">1年で一番寒い季節はいつですか</span> «¿cuál es la estación más fría del año?». Y <span class="jp">よかった</span> en el ejemplo de Europa es el pretérito de いい que viste en la <strong>L8-1</strong>.</div>
+
+<h2 id="voc">Vocabulario de la lección</h2>
+<table>
+<tr><th>Japonés</th><th>Rōmaji</th><th>Español</th></tr>
+<tr><td class="jp">せ</td><td class="rom">se</td><td>estatura, altura (de una persona)</td></tr>
+<tr><td class="jp">どちら</td><td class="rom">dochira</td><td>cuál (entre dos); dónde (cortés)</td></tr>
+<tr><td class="jp">いちばん</td><td class="rom">ichiban</td><td>lo más…; el número uno</td></tr>
+<tr><td class="jp">にんき</td><td class="rom">ninki</td><td>popularidad</td></tr>
+<tr><td class="jp">きせつ</td><td class="rom">kisetsu</td><td>estación del año</td></tr>
+<tr><td class="jp">はる</td><td class="rom">haru</td><td>primavera</td></tr>
+<tr><td class="jp">あき</td><td class="rom">aki</td><td>otoño</td></tr>
+<tr><td class="jp">ひま</td><td class="rom">hima</td><td>libre, con tiempo libre</td></tr>
+<tr><td class="jp">かんじ</td><td class="rom">kanji</td><td>caracteres de origen chino</td></tr>
+<tr><td class="jp">カード</td><td class="rom">kaado</td><td>tarjeta (de crédito)</td></tr>
+<tr><td class="jp">はらいます</td><td class="rom">haraimasu</td><td>pagar</td></tr>
+<tr><td class="jp">ゆき</td><td class="rom">yuki</td><td>nieve</td></tr>
+<tr><td class="jp">ふります</td><td class="rom">furimasu</td><td>caer (la lluvia, la nieve)</td></tr>
+<tr><td class="jp">スキー</td><td class="rom">sukii</td><td>esquí</td></tr>
+<tr><td class="jp">サッカー</td><td class="rom">sakkā</td><td>fútbol</td></tr>
+<tr><td class="jp">やきゅう</td><td class="rom">yakyū</td><td>béisbol</td></tr>
+<tr><td class="jp">ギター</td><td class="rom">gitā</td><td>guitarra</td></tr>
+<tr><td class="jp">ひきます</td><td class="rom">hikimasu</td><td>tocar (instrumento de cuerda)</td></tr>
+<tr><td class="jp">おとうと</td><td class="rom">otōto</td><td>hermano menor</td></tr>
+<tr><td class="jp">こうじょう</td><td class="rom">kōjō</td><td>fábrica</td></tr>
+<tr><td class="jp">～だい</td><td class="rom">~dai</td><td>contador de máquinas, coches…</td></tr>
+</table>
+
+<div class="repaso" id="repaso">
+<h2 style="margin-top:0">Repaso final</h2>
+<ul>
+<li><strong>Forma de diccionario</strong>: Grupo I cambia el último sonido a la columna う (かく, よむ, まつ, すう); Grupo II ます→る (たべる, みる); Grupo III する y くる.</li>
+<li><strong>～ことができます</strong>: capacidad personal o posibilidad; lo que se puede va con が; con verbo, V辞書形 + ことが (漢字を読むことができます).</li>
+<li><strong>AはBより + adjetivo</strong>: «A es más… que B»; より se pega al término de referencia.</li>
+<li><strong>Dos opciones</strong>: ～と～とどちらが…ですか; la respuesta elige con ～のほうが.</li>
+<li><strong>Conjunto</strong>: [ámbito]で / ～の中で + 何・どこ・だれ・いつが いちばん…; la respuesta repite la estructura con el ganador.</li>
+<li>El interrogativo que hace de sujeto lleva <strong>が</strong>, nunca は.</li>
+</ul>
+<p><strong>Comprueba:</strong></p>
+<details><summary>El Sr. Miller sabe leer kanji.<p class="jp">ミラーさんは 漢字を 読むことが できます。<br><span class="rom">Miraa-san wa kanji o yomu koto ga dekimasu.</span></p></details>
+<details><summary>Se puede pagar con tarjeta.<p class="jp">カードで 払うことが できます。<br><span class="rom">Kaado de harau koto ga dekimasu.</span></p></details>
+<details><summary>Tan es más alto que Kim.<p class="jp">タンさんは キムさんより せが 高いです。<br><span class="rom">Tan-san wa Kimu-san yori se ga takai desu.</span></p></details>
+<details><summary>¿Cuál es más interesante, el fútbol o el béisbol? — El fútbol.<p class="jp">サッカーと 野球と どちらが おもしろいですか。……サッカーの ほうが おもしろいです。<br><span class="rom">Sakkā to yakyū to dochira ga omoshiroi desu ka. …… Sakkā no hoo ga omoshiroi desu.</span></p></details>
+<details><summary>¿Quién es el más alto de su familia? — Mi hermano menor.<p class="jp">家族で だれが いちばん せが 高いですか。……弟が いちばん せが 高いです。<br><span class="rom">Kazoku de dare ga ichiban se ga takai desu ka. …… Otōto ga ichiban se ga takai desu.</span></p></details>
+<details><summary>¿Cuándo es la época más fría del año? — Febrero.<p class="jp">1年で いつが いちばん 寒いですか。……2月が いちばん 寒いです。<br><span class="rom">Ichinen de itsu ga ichiban samui desu ka. …… Nigatsu ga ichiban samui desu.</span></p></details>
+</div>
+</main>
+</body>
+</html>
