@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { AppShell, Button, Card, Group, Modal, Stack, Table, TextInput, Textarea, Text, Title, Pagination, FileInput, Tabs, Checkbox, Badge } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconPlus, IconTrash, IconUpload, IconPhotoScan, IconBook2, IconExternalLink } from '@tabler/icons-react'
+import { IconPlus, IconTrash, IconUpload, IconPhotoScan, IconBook2, IconExternalLink, IconFileDownload } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 
@@ -365,6 +365,24 @@ export default function Admin() {
     }
   }
 
+  // Descarga el PDF exportado del backend (blob con JWT) y dispara la descarga
+  async function exportPdf(type: 'words' | 'kanji', search: string) {
+    try {
+      const params = search ? `?search=${encodeURIComponent(search)}` : ''
+      const { data } = await api.get(`/api/export/${type}.pdf${params}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = type === 'words' ? 'vocabulario.pdf' : 'kanji.pdf'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      notifications.show({ color: 'red', title: 'Error al exportar', message: e?.response?.data?.error || 'No se pudo generar el PDF' })
+    }
+  }
+
   // Función para limpiar BD
   async function clearDatabase(type: 'words' | 'kanji') {
     const confirmMsg = type === 'words'
@@ -439,6 +457,14 @@ export default function Admin() {
                       Importar
                     </Button>
                     <Button
+                      leftSection={<IconFileDownload size={16} />}
+                      variant="outline"
+                      color="indigo"
+                      onClick={() => exportPdf('words', wordsSearch)}
+                    >
+                      Exportar PDF
+                    </Button>
+                    <Button
                       leftSection={<IconPlus size={16} />}
                       onClick={openNewWord}
                     >
@@ -498,6 +524,14 @@ export default function Admin() {
                     style={{ flex: 1 }}
                   />
                   <Group gap="xs">
+                    <Button
+                      leftSection={<IconFileDownload size={16} />}
+                      variant="outline"
+                      color="indigo"
+                      onClick={() => exportPdf('kanji', kanjiSearch)}
+                    >
+                      Exportar PDF
+                    </Button>
                     <Button
                       leftSection={<IconPlus size={16} />}
                       onClick={openNewKanji}

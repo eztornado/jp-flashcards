@@ -13,6 +13,7 @@ import axios from "axios";
 import dotenv from "dotenv";
 import { authMiddleware, requireRole } from "./auth/middleware.js";
 import { createAuthRoutes } from "./auth/routes.js";
+import { sendTablePdf } from "./exports/pdf.js";
 
 // Extender tipos de Express para multer
 declare global {
@@ -880,6 +881,67 @@ app.delete("/api/kanji", requireRole('ADMIN'), (req, res) => {
     db.exec("VACUUM");
   } catch {}
   res.json({ deleted: info.changes });
+});
+
+// ============ EXPORT PDF ENDPOINTS ============
+
+// GET /api/export/words.pdf?search= → PDF con todas las palabras (id ASC)
+app.get("/api/export/words.pdf", requireRole("ADMIN"), (req, res) => {
+  try {
+    const search = (req.query.search as string | undefined)?.trim() ?? "";
+    let where = "";
+    let params: any[] = [];
+    if (search) {
+      where = "WHERE kanji LIKE ? OR romaji LIKE ? OR translation LIKE ?";
+      const like = `%${search}%`;
+      params = [like, like, like];
+    }
+    const rows = db
+      .prepare(`SELECT * FROM words ${where} ORDER BY id ASC`)
+      .all(...params) as any[];
+    sendTablePdf(res, "vocabulario.pdf", {
+      title: `Listado de vocabulario${search ? ` — búsqueda: ${search}` : ""}`,
+      headers: ["Kanji", "Romaji", "Traducción"],
+      colWidths: [0.28, 0.3, 0.42],
+      rows: rows.map((row) => [row.kanji, row.romaji ?? "", row.translation]),
+      emptyMessage: "No hay palabras que coincidan con la búsqueda.",
+    });
+  } catch (err) {
+    console.error("[export/words.pdf]", err);
+    res.status(500).json({ error: "Error generando el PDF" });
+  }
+});
+
+// GET /api/export/kanji.pdf?search= → PDF con todos los kanji (id ASC)
+app.get("/api/export/kanji.pdf", requireRole("ADMIN"), (req, res) => {
+  try {
+    const search = (req.query.search as string | undefined)?.trim() ?? "";
+    let where = "";
+    let params: any[] = [];
+    if (search) {
+      where = "WHERE kanji LIKE ? OR onyomi LIKE ? OR kunyomi LIKE ? OR translation LIKE ?";
+      const like = `%${search}%`;
+      params = [like, like, like, like];
+    }
+    const rows = db
+      .prepare(`SELECT * FROM kanji ${where} ORDER BY id ASC`)
+      .all(...params) as any[];
+    sendTablePdf(res, "kanji.pdf", {
+      title: `Listado de kanji${search ? ` — búsqueda: ${search}` : ""}`,
+      headers: ["Kanji", "Onyomi", "Kunyomi", "Traducción"],
+      colWidths: [0.14, 0.22, 0.22, 0.42],
+      rows: rows.map((row) => [
+        row.kanji,
+        row.onyomi ?? "",
+        row.kunyomi ?? "",
+        row.translation,
+      ]),
+      emptyMessage: "No hay kanji que coincidan con la búsqueda.",
+    });
+  } catch (err) {
+    console.error("[export/kanji.pdf]", err);
+    res.status(500).json({ error: "Error generando el PDF" });
+  }
 });
 
 // ============ QUIZ ENDPOINTS ============
