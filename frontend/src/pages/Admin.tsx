@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { AppShell, Button, Card, Group, Modal, Stack, Table, TextInput, Textarea, Text, Title, Pagination, FileInput, Tabs, Checkbox, Badge } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconPlus, IconTrash, IconUpload, IconPhotoScan, IconBook2, IconExternalLink, IconFileDownload } from '@tabler/icons-react'
+import { IconPlus, IconTrash, IconUpload, IconPhotoScan, IconBook2, IconExternalLink, IconFileDownload, IconCards } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 
@@ -365,21 +365,21 @@ export default function Admin() {
     }
   }
 
-  // Descarga el PDF exportado del backend (blob con JWT) y dispara la descarga
-  async function exportPdf(type: 'words' | 'kanji', search: string) {
+  // Descarga un fichero exportado del backend (blob con JWT) y dispara la descarga
+  async function exportFile(path: string, filename: string, search: string) {
     try {
       const params = search ? `?search=${encodeURIComponent(search)}` : ''
-      const { data } = await api.get(`/api/export/${type}.pdf${params}`, { responseType: 'blob' })
+      const { data } = await api.get(`/api/export/${path}${params}`, { responseType: 'blob' })
       const url = URL.createObjectURL(data)
       const a = document.createElement('a')
       a.href = url
-      a.download = type === 'words' ? 'vocabulario.pdf' : 'kanji.pdf'
+      a.download = filename
       document.body.appendChild(a)
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
     } catch (e: any) {
-      notifications.show({ color: 'red', title: 'Error al exportar', message: e?.response?.data?.error || 'No se pudo generar el PDF' })
+      notifications.show({ color: 'red', title: 'Error al exportar', message: e?.response?.data?.error || 'No se pudo generar el fichero' })
     }
   }
 
@@ -460,9 +460,17 @@ export default function Admin() {
                       leftSection={<IconFileDownload size={16} />}
                       variant="outline"
                       color="indigo"
-                      onClick={() => exportPdf('words', wordsSearch)}
+                      onClick={() => exportFile('words.pdf', 'vocabulario.pdf', wordsSearch)}
                     >
                       Exportar PDF
+                    </Button>
+                    <Button
+                      leftSection={<IconCards size={16} />}
+                      variant="outline"
+                      color="teal"
+                      onClick={() => exportFile('words.apkg', 'vocabulario.apkg', wordsSearch)}
+                    >
+                      Exportar Anki
                     </Button>
                     <Button
                       leftSection={<IconPlus size={16} />}
@@ -528,9 +536,17 @@ export default function Admin() {
                       leftSection={<IconFileDownload size={16} />}
                       variant="outline"
                       color="indigo"
-                      onClick={() => exportPdf('kanji', kanjiSearch)}
+                      onClick={() => exportFile('kanji.pdf', 'kanji.pdf', kanjiSearch)}
                     >
                       Exportar PDF
+                    </Button>
+                    <Button
+                      leftSection={<IconCards size={16} />}
+                      variant="outline"
+                      color="teal"
+                      onClick={() => exportFile('kanji.apkg', 'kanji.apkg', kanjiSearch)}
+                    >
+                      Exportar Anki
                     </Button>
                     <Button
                       leftSection={<IconPlus size={16} />}

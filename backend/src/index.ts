@@ -14,6 +14,7 @@ import dotenv from "dotenv";
 import { authMiddleware, requireRole } from "./auth/middleware.js";
 import { createAuthRoutes } from "./auth/routes.js";
 import { sendTablePdf } from "./exports/pdf.js";
+import { sendAnkiDeck } from "./exports/anki.js";
 
 // Extender tipos de Express para multer
 declare global {
@@ -941,6 +942,71 @@ app.get("/api/export/kanji.pdf", requireRole("ADMIN"), (req, res) => {
   } catch (err) {
     console.error("[export/kanji.pdf]", err);
     res.status(500).json({ error: "Error generando el PDF" });
+  }
+});
+
+// GET /api/export/words.apkg?search= → mazo Anki con todas las palabras
+app.get("/api/export/words.apkg", requireRole("ADMIN"), async (req, res) => {
+  try {
+    const search = (req.query.search as string | undefined)?.trim() ?? "";
+    let where = "";
+    let params: any[] = [];
+    if (search) {
+      where = "WHERE kanji LIKE ? OR romaji LIKE ? OR translation LIKE ?";
+      const like = `%${search}%`;
+      params = [like, like, like];
+    }
+    const rows = db
+      .prepare(`SELECT * FROM words ${where} ORDER BY id ASC`)
+      .all(...params) as any[];
+    await sendAnkiDeck(res, "vocabulario.apkg", {
+      deckName: "JP Flashcards::Vocabulario",
+      modelName: "Vocabulario JP",
+      fields: ["Palabra", "Romaji", "Traducción"],
+      sortField: "Palabra",
+      questionFormat: "{{Palabra}}",
+      answerFormat: '<div class="reading">{{Romaji}}</div><hr id="answer"><div class="meaning">{{Traducción}}</div>',
+      notes: rows.map((row) => ({
+        noteId: `words-${row.id}`,
+        values: [row.kanji, row.romaji ?? "", row.translation],
+      })),
+    });
+  } catch (err) {
+    console.error("[export/words.apkg]", err);
+    if (!res.headersSent) res.status(500).json({ error: "Error generando el mazo Anki" });
+  }
+});
+
+// GET /api/export/kanji.apkg?search= → mazo Anki con todos los kanji
+app.get("/api/export/kanji.apkg", requireRole("ADMIN"), async (req, res) => {
+  try {
+    const search = (req.query.search as string | undefined)?.trim() ?? "";
+    let where = "";
+    let params: any[] = [];
+    if (search) {
+      where = "WHERE kanji LIKE ? OR onyomi LIKE ? OR kunyomi LIKE ? OR translation LIKE ?";
+      const like = `%${search}%`;
+      params = [like, like, like, like];
+    }
+    const rows = db
+      .prepare(`SELECT * FROM kanji ${where} ORDER BY id ASC`)
+      .all(...params) as any[];
+    await sendAnkiDeck(res, "kanji.apkg", {
+      deckName: "JP Flashcards::Kanji",
+      modelName: "Kanji JP",
+      fields: ["Kanji", "Onyomi", "Kunyomi", "Traducción"],
+      sortField: "Kanji",
+      questionFormat: "{{Kanji}}",
+      answerFormat:
+        '<div class="reading">{{Onyomi}}</div><div class="reading">{{Kunyomi}}</div><hr id="answer"><div class="meaning">{{Traducción}}</div>',
+      notes: rows.map((row) => ({
+        noteId: `kanji-${row.id}`,
+        values: [row.kanji, row.onyomi ?? "", row.kunyomi ?? "", row.translation],
+      })),
+    });
+  } catch (err) {
+    console.error("[export/kanji.apkg]", err);
+    if (!res.headersSent) res.status(500).json({ error: "Error generando el mazo Anki" });
   }
 });
 
