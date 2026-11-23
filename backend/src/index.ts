@@ -15,6 +15,7 @@ import { authMiddleware, requireRole } from "./auth/middleware.js";
 import { createAuthRoutes } from "./auth/routes.js";
 import { sendTablePdf } from "./exports/pdf.js";
 import { sendAnkiDeck } from "./exports/anki.js";
+import { sendLessonPdf } from "./exports/lesson-pdf.js";
 
 // Extender tipos de Express para multer
 declare global {
@@ -1473,6 +1474,23 @@ function applyMeta(html: string, title: string, description: string): string {
   }
   return out;
 }
+
+// GET /api/export/lessons/:id.pdf → PDF de la lección con su diseño original
+// Requiere login (cualquier rol, como el resto de endpoints de lecciones y quiz:
+// sin requireRole, authMiddleware basta): lo usan el admin y /lecciones/:id
+app.get("/api/export/lessons/:id.pdf", async (req, res) => {
+  const id = String(req.params.id);
+  if (!LESSON_ID_RE.test(id) || !fs.existsSync(lessonFile(id)))
+    return res.status(404).json({ error: "Lección no encontrada" });
+  try {
+    const html = fs.readFileSync(lessonFile(id), "utf8");
+    await sendLessonPdf(res, id, html);
+  } catch (err) {
+    console.error("[export/lesson-pdf]", err);
+    if (!res.headersSent)
+      res.status(500).json({ error: "No se pudo generar el PDF de la lección" });
+  }
+});
 
 // GET /api/lessons - listado de lecciones (sin el HTML pesado)
 app.get("/api/lessons", (req, res) => {

@@ -24,7 +24,9 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Instalar curl para healthcheck
-RUN apk add --no-cache curl
+# Chromium + fuente CJK para la exportación de lecciones a PDF (puppeteer-core
+# usa el Chromium del sistema; font-noto-cjk renderiza el japonés en el PDF)
+RUN apk add --no-cache curl chromium font-noto-cjk
 
 # Instalar dependencias de producción
 COPY package*.json ./

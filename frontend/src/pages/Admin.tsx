@@ -634,6 +634,15 @@ export default function Admin() {
                               <Button
                                 size="xs"
                                 variant="light"
+                                color="indigo"
+                                leftSection={<IconFileDownload size={14} />}
+                                onClick={() => exportFile(`lessons/${l.id}.pdf`, `${l.id}.pdf`, '')}
+                              >
+                                PDF
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="light"
                                 color="blue"
                                 leftSection={<IconExternalLink size={14} />}
                                 component={Link}
